@@ -17,6 +17,7 @@ namespace DeskCallAssistant
         private readonly Timer _scanTimer = new Timer();
 
         private readonly CheckBox _autoAnswerCheckBox = new CheckBox();
+        private readonly CheckBox _manualTalkCheckBox = new CheckBox();
         private readonly CheckBox _preferGpuCheckBox = new CheckBox();
         private readonly NumericUpDown _scanIntervalSeconds = new NumericUpDown();
         private readonly TextBox _processNamesTextBox = new TextBox();
@@ -41,11 +42,13 @@ namespace DeskCallAssistant
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(980, 720);
             ClientSize = new Size(980, 720);
+            KeyPreview = true;
 
             InitializeLayout();
             LoadVoices();
 
             _scanTimer.Tick += ScanTimerOnTick;
+            KeyDown += MainFormOnKeyDown;
             UpdateTimerState();
             Log("Ready. Configure process names and button labels, then enable Auto-answer.");
         }
@@ -243,7 +246,7 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
                 ColumnCount = 4,
-                RowCount = 4
+                RowCount = 5
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -251,8 +254,13 @@ namespace DeskCallAssistant
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
+
+            _manualTalkCheckBox.Text = "Manual talk takeover (F8)";
+            _manualTalkCheckBox.AutoSize = true;
+            _manualTalkCheckBox.CheckedChanged += (_, __) => ApplyManualTalkMode();
 
             _voicesComboBox.Dock = DockStyle.Fill;
             _voicesComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -285,26 +293,36 @@ namespace DeskCallAssistant
                 Log("Speech stopped.");
             };
 
-            layout.Controls.Add(new Label { Text = "Voice", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-            layout.Controls.Add(_voicesComboBox, 1, 0);
-            layout.Controls.Add(new Label { Text = "Rate", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 2, 0);
-            layout.Controls.Add(_rateTrackBar, 3, 0);
+            layout.Controls.Add(_manualTalkCheckBox, 0, 0);
+            layout.SetColumnSpan(_manualTalkCheckBox, 2);
+            layout.Controls.Add(new Label
+            {
+                Text = "When enabled, the bot stops speaking so you can use your own microphone.",
+                AutoSize = true,
+                Dock = DockStyle.Fill
+            }, 2, 0);
+            layout.SetColumnSpan(layout.GetControlFromPosition(2, 0), 2);
 
-            layout.Controls.Add(new Label { Text = "Volume", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 1);
-            layout.Controls.Add(_volumeTrackBar, 1, 1);
+            layout.Controls.Add(new Label { Text = "Voice", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 1);
+            layout.Controls.Add(_voicesComboBox, 1, 1);
+            layout.Controls.Add(new Label { Text = "Rate", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 2, 1);
+            layout.Controls.Add(_rateTrackBar, 3, 1);
+
+            layout.Controls.Add(new Label { Text = "Volume", AutoSize = true, TextAlign = ContentAlignment.MiddleLeft }, 0, 2);
+            layout.Controls.Add(_volumeTrackBar, 1, 2);
             layout.Controls.Add(new Label
             {
                 Text = "Tip: this app speaks to your default speaker. For clean in-call audio, route your speaker output into a virtual microphone.",
                 AutoSize = true,
                 Dock = DockStyle.Fill
-            }, 2, 1);
-            layout.SetColumnSpan(layout.GetControlFromPosition(2, 1), 2);
+            }, 2, 2);
+            layout.SetColumnSpan(layout.GetControlFromPosition(2, 2), 2);
 
-            layout.Controls.Add(new Label { Text = "Type what should be spoken", AutoSize = true, Dock = DockStyle.Fill }, 0, 2);
-            layout.Controls.Add(_speechTextBox, 1, 2);
+            layout.Controls.Add(new Label { Text = "Type what should be spoken", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
+            layout.Controls.Add(_speechTextBox, 1, 3);
             layout.SetColumnSpan(_speechTextBox, 3);
-            layout.Controls.Add(_speakButton, 2, 3);
-            layout.Controls.Add(_stopSpeechButton, 3, 3);
+            layout.Controls.Add(_speakButton, 2, 4);
+            layout.Controls.Add(_stopSpeechButton, 3, 4);
 
             group.Controls.Add(layout);
             return group;
@@ -353,6 +371,45 @@ namespace DeskCallAssistant
         {
             var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
             _computeStatusTextBox.Text = status.Summary;
+        }
+
+        private void MainFormOnKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode != Keys.F8)
+            {
+                return;
+            }
+
+            _manualTalkCheckBox.Checked = !_manualTalkCheckBox.Checked;
+            e.Handled = true;
+        }
+
+        private void ApplyManualTalkMode()
+        {
+            var manualMode = _manualTalkCheckBox.Checked;
+
+            if (manualMode)
+            {
+                _speech.Stop();
+            }
+
+            _speechTextBox.Enabled = !manualMode;
+            _voicesComboBox.Enabled = !manualMode;
+            _rateTrackBar.Enabled = !manualMode;
+            _volumeTrackBar.Enabled = !manualMode;
+            _speakButton.Enabled = !manualMode;
+            _stopSpeechButton.Enabled = !manualMode;
+
+            if (manualMode)
+            {
+                Log("Manual talk takeover enabled. Bot voice is paused so you can speak yourself.");
+                SetStatus("Manual talk takeover is active.");
+            }
+            else
+            {
+                Log("Manual talk takeover disabled. Bot voice is available again.");
+                SetStatus("Bot voice controls are available.");
+            }
         }
 
         private void UpdateTimerState()
@@ -445,6 +502,13 @@ namespace DeskCallAssistant
 
         private void SpeakCurrentText()
         {
+            if (_manualTalkCheckBox.Checked)
+            {
+                Log("Bot speech is paused because manual talk takeover is active.");
+                SetStatus("Disable manual talk takeover to let the bot speak again.");
+                return;
+            }
+
             try
             {
                 _speech.Configure(
