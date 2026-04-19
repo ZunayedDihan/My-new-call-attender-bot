@@ -12,13 +12,16 @@ namespace DeskCallAssistant
     public sealed class MainForm : Form
     {
         private readonly CallAutomationService _callAutomation = new CallAutomationService();
+        private readonly ComputePolicyService _computePolicy = new ComputePolicyService();
         private readonly SpeechService _speech = new SpeechService();
         private readonly Timer _scanTimer = new Timer();
 
         private readonly CheckBox _autoAnswerCheckBox = new CheckBox();
+        private readonly CheckBox _preferGpuCheckBox = new CheckBox();
         private readonly NumericUpDown _scanIntervalSeconds = new NumericUpDown();
         private readonly TextBox _processNamesTextBox = new TextBox();
         private readonly TextBox _buttonLabelsTextBox = new TextBox();
+        private readonly TextBox _computeStatusTextBox = new TextBox();
         private readonly TextBox _speechTextBox = new TextBox();
         private readonly ComboBox _voicesComboBox = new ComboBox();
         private readonly TrackBar _rateTrackBar = new TrackBar();
@@ -61,18 +64,20 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
                 ColumnCount = 1,
-                RowCount = 4
+                RowCount = 5
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 130f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 220f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             Controls.Add(root);
 
             root.Controls.Add(BuildAutomationPanel(), 0, 0);
-            root.Controls.Add(BuildSpeechPanel(), 0, 1);
-            root.Controls.Add(BuildLogPanel(), 0, 2);
-            root.Controls.Add(BuildStatusPanel(), 0, 3);
+            root.Controls.Add(BuildComputePanel(), 0, 1);
+            root.Controls.Add(BuildSpeechPanel(), 0, 2);
+            root.Controls.Add(BuildLogPanel(), 0, 3);
+            root.Controls.Add(BuildStatusPanel(), 0, 4);
         }
 
         private Control BuildAutomationPanel()
@@ -180,6 +185,48 @@ namespace DeskCallAssistant
             layout.SetColumnSpan(actionsPanel, 4);
 
             group.Controls.Add(layout);
+            return group;
+        }
+
+        private Control BuildComputePanel()
+        {
+            var group = new GroupBox
+            {
+                Text = "Compute policy",
+                Dock = DockStyle.Fill
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                ColumnCount = 1,
+                RowCount = 2
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            _preferGpuCheckBox.Text = "Prefer GPU for local bot workloads";
+            _preferGpuCheckBox.AutoSize = true;
+            _preferGpuCheckBox.CheckedChanged += (_, __) =>
+            {
+                UpdateComputeStatus();
+                Log(_preferGpuCheckBox.Checked
+                    ? "GPU preference enabled for local bot workloads."
+                    : "GPU preference disabled for local bot workloads.");
+            };
+
+            _computeStatusTextBox.Multiline = true;
+            _computeStatusTextBox.ReadOnly = true;
+            _computeStatusTextBox.ScrollBars = ScrollBars.Vertical;
+            _computeStatusTextBox.Dock = DockStyle.Fill;
+            _computeStatusTextBox.BackColor = Color.White;
+
+            layout.Controls.Add(_preferGpuCheckBox, 0, 0);
+            layout.Controls.Add(_computeStatusTextBox, 0, 1);
+            group.Controls.Add(layout);
+
+            UpdateComputeStatus();
             return group;
         }
 
@@ -300,6 +347,12 @@ namespace DeskCallAssistant
             {
                 _voicesComboBox.SelectedIndex = 0;
             }
+        }
+
+        private void UpdateComputeStatus()
+        {
+            var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
+            _computeStatusTextBox.Text = status.Summary;
         }
 
         private void UpdateTimerState()
