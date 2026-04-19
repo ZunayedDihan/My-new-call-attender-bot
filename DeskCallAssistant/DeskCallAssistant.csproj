@@ -41,11 +41,13 @@
     <Reference Include="UIAutomationTypes" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AppPolicy.cs" />
     <Compile Include="AnswerConfig.cs" />
     <Compile Include="CallAutomationService.cs" />
     <Compile Include="CallActionResult.cs" />
     <Compile Include="ComputePolicyService.cs" />
     <Compile Include="ComputeStatus.cs" />
+    <Compile Include="LocalLearningService.cs" />
     <Compile Include="MainForm.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="SpeechService.cs" />

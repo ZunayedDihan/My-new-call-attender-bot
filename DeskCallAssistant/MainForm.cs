@@ -13,6 +13,7 @@ namespace DeskCallAssistant
     {
         private readonly CallAutomationService _callAutomation = new CallAutomationService();
         private readonly ComputePolicyService _computePolicy = new ComputePolicyService();
+        private readonly LocalLearningService _learning = new LocalLearningService();
         private readonly SpeechService _speech = new SpeechService();
         private readonly Timer _scanTimer = new Timer();
 
@@ -30,8 +31,10 @@ namespace DeskCallAssistant
         private readonly TextBox _logTextBox = new TextBox();
         private readonly Button _scanNowButton = new Button();
         private readonly Button _inspectButtonsButton = new Button();
+        private readonly Button _rememberPhraseButton = new Button();
         private readonly Button _speakButton = new Button();
         private readonly Button _stopSpeechButton = new Button();
+        private readonly ListBox _suggestionsListBox = new ListBox();
         private readonly Label _statusLabel = new Label();
 
         private bool _scanInProgress;
@@ -71,7 +74,7 @@ namespace DeskCallAssistant
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 130f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 220f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 320f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             Controls.Add(root);
@@ -246,7 +249,7 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
                 ColumnCount = 4,
-                RowCount = 5
+                RowCount = 6
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -255,6 +258,7 @@ namespace DeskCallAssistant
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 90f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
 
@@ -280,10 +284,15 @@ namespace DeskCallAssistant
             _speechTextBox.ScrollBars = ScrollBars.Vertical;
             _speechTextBox.Dock = DockStyle.Fill;
             _speechTextBox.Text = "Hello, please give me a moment.";
+            _speechTextBox.TextChanged += (_, __) => UpdateLearningSuggestions();
 
             _speakButton.Text = "Speak";
             _speakButton.Dock = DockStyle.Fill;
             _speakButton.Click += (_, __) => SpeakCurrentText();
+
+            _rememberPhraseButton.Text = "Remember";
+            _rememberPhraseButton.Dock = DockStyle.Fill;
+            _rememberPhraseButton.Click += (_, __) => RememberCurrentPhrase("manual-save");
 
             _stopSpeechButton.Text = "Stop";
             _stopSpeechButton.Dock = DockStyle.Fill;
@@ -291,6 +300,18 @@ namespace DeskCallAssistant
             {
                 _speech.Stop();
                 Log("Speech stopped.");
+            };
+
+            _suggestionsListBox.Dock = DockStyle.Fill;
+            _suggestionsListBox.DoubleClick += (_, __) =>
+            {
+                if (_suggestionsListBox.SelectedItem == null)
+                {
+                    return;
+                }
+
+                _speechTextBox.Text = _suggestionsListBox.SelectedItem.ToString();
+                _speechTextBox.SelectionStart = _speechTextBox.TextLength;
             };
 
             layout.Controls.Add(_manualTalkCheckBox, 0, 0);
@@ -321,8 +342,25 @@ namespace DeskCallAssistant
             layout.Controls.Add(new Label { Text = "Type what should be spoken", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
             layout.Controls.Add(_speechTextBox, 1, 3);
             layout.SetColumnSpan(_speechTextBox, 3);
-            layout.Controls.Add(_speakButton, 2, 4);
-            layout.Controls.Add(_stopSpeechButton, 3, 4);
+
+            layout.Controls.Add(new Label { Text = "Local suggestions", AutoSize = true, Dock = DockStyle.Fill }, 0, 4);
+            layout.Controls.Add(_suggestionsListBox, 1, 4);
+            layout.SetColumnSpan(_suggestionsListBox, 3);
+
+            var actionPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 3,
+                RowCount = 1
+            };
+            actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            actionPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
+            actionPanel.Controls.Add(_rememberPhraseButton, 0, 0);
+            actionPanel.Controls.Add(_speakButton, 1, 0);
+            actionPanel.Controls.Add(_stopSpeechButton, 2, 0);
+            layout.Controls.Add(actionPanel, 1, 5);
+            layout.SetColumnSpan(actionPanel, 3);
 
             group.Controls.Add(layout);
             return group;
@@ -365,12 +403,18 @@ namespace DeskCallAssistant
             {
                 _voicesComboBox.SelectedIndex = 0;
             }
+
+            UpdateLearningSuggestions();
         }
 
         private void UpdateComputeStatus()
         {
             var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
-            _computeStatusTextBox.Text = status.Summary;
+            _computeStatusTextBox.Text = string.Format(
+                "{0}{1}{1}{2}",
+                status.Summary,
+                Environment.NewLine,
+                AppPolicy.BuildPrivacySummary(_learning.StoragePath));
         }
 
         private void MainFormOnKeyDown(object sender, KeyEventArgs e)
@@ -393,10 +437,6 @@ namespace DeskCallAssistant
                 _speech.Stop();
             }
 
-            _speechTextBox.Enabled = !manualMode;
-            _voicesComboBox.Enabled = !manualMode;
-            _rateTrackBar.Enabled = !manualMode;
-            _volumeTrackBar.Enabled = !manualMode;
             _speakButton.Enabled = !manualMode;
             _stopSpeechButton.Enabled = !manualMode;
 
@@ -516,6 +556,8 @@ namespace DeskCallAssistant
                     _rateTrackBar.Value,
                     _volumeTrackBar.Value);
                 _speech.SpeakAsync(_speechTextBox.Text);
+                _learning.RememberPhrase(_speechTextBox.Text, "bot-speech");
+                UpdateLearningSuggestions();
                 Log("Speaking typed message.");
                 SetStatus("Speaking through the default output device.");
             }
@@ -523,6 +565,37 @@ namespace DeskCallAssistant
             {
                 Log("Speech error: " + ex.Message);
                 SetStatus("Speech failed.");
+            }
+        }
+
+        private void RememberCurrentPhrase(string source)
+        {
+            if (string.IsNullOrWhiteSpace(_speechTextBox.Text))
+            {
+                Log("Nothing to remember yet.");
+                return;
+            }
+
+            _learning.RememberPhrase(_speechTextBox.Text, source);
+            UpdateLearningSuggestions();
+            Log("Saved the current phrase into local-only learning memory.");
+        }
+
+        private void UpdateLearningSuggestions()
+        {
+            var suggestions = _learning.GetSuggestions(_speechTextBox.Text, 8);
+            _suggestionsListBox.BeginUpdate();
+            try
+            {
+                _suggestionsListBox.Items.Clear();
+                foreach (var suggestion in suggestions)
+                {
+                    _suggestionsListBox.Items.Add(suggestion);
+                }
+            }
+            finally
+            {
+                _suggestionsListBox.EndUpdate();
             }
         }
 

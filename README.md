@@ -13,6 +13,7 @@ This is a Windows 10 desktop prototype for:
 - watching Messenger, WhatsApp, and Chrome windows for incoming-call answer buttons
 - clicking a matching `Answer` or `Accept` button with Windows UI Automation
 - letting you type a message and speak it out loud with Windows text-to-speech
+- storing learned phrase suggestions locally on the same PC without using internet learning
 
 ## Important limits
 
@@ -21,6 +22,7 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 - Meta does not provide a normal public API for auto-answering Messenger or WhatsApp calls from a custom desktop app.
 - The auto-answer feature depends on visible UI elements and accessibility labels. If the button text is different on your machine, add the real label in the app.
 - Speaking into the call is not the same as injecting audio directly into the app's microphone stream.
+- The app is hard-coded for local-only learning. It does not fetch training data from the internet or publish learned phrases online.
 - For reliable in-call speech output, route your default speaker output into a virtual microphone using tools like VB-CABLE or VoiceMeeter, then set that virtual device as the microphone for Messenger or WhatsApp.
 
 ## Files
@@ -55,6 +57,8 @@ DeskCallAssistant\bin\Release\
 3. Check `Enable auto-answer`.
 4. Adjust process names or button labels if your app uses different wording.
 5. Type a response in the speech box and click `Speak`.
+6. Use `Remember` to save phrases locally and reuse them from the suggestion list.
+7. Press `F8` or enable `Manual talk takeover` whenever you want to speak yourself instead of the bot.
 
 ## Sensible next upgrades
 
