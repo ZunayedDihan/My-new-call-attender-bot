@@ -14,6 +14,7 @@ This is a Windows 10 desktop prototype for:
 - clicking a matching `Answer` or `Accept` button with Windows UI Automation
 - letting you type a message and speak it out loud with Windows text-to-speech
 - storing learned phrase suggestions locally on the same PC without using internet learning
+- detecting supported chat windows and preparing local reply suggestions for WhatsApp, Telegram, Messenger, and Facebook messaging surfaces
 
 ## Important limits
 
@@ -21,9 +22,23 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 
 - Meta does not provide a normal public API for auto-answering Messenger or WhatsApp calls from a custom desktop app.
 - The auto-answer feature depends on visible UI elements and accessibility labels. If the button text is different on your machine, add the real label in the app.
+- Message reply automation is best-effort desktop UI automation. It depends on what accessibility information the target app or browser exposes on your machine.
 - Speaking into the call is not the same as injecting audio directly into the app's microphone stream.
 - The app is hard-coded for local-only learning. It does not fetch training data from the internet or publish learned phrases online.
 - For reliable in-call speech output, route your default speaker output into a virtual microphone using tools like VB-CABLE or VoiceMeeter, then set that virtual device as the microphone for Messenger or WhatsApp.
+
+## Messaging reply assistant
+
+- Supported targets: WhatsApp, Telegram, Messenger app, `messenger.com`, and Facebook messaging surfaces inside `facebook.com`.
+- Reply languages: Bengali, English, Japanese, and Banglish.
+- Learning mode: the app learns from incoming-message and reply pairs that you save from now on.
+- Reply mode: the app can detect a message, generate a local suggestion, draft it into the chat composer, or auto-send it if you enable that option.
+
+## Verified Messenger web note
+
+The official desktop web Messenger surface is `messenger.com`.
+
+Facebook also has messaging inside `facebook.com`, but `facebook.com/messenger` is not the canonical desktop web Messenger entry point used in Meta's help pages.
 
 ## Files
 
@@ -59,6 +74,7 @@ DeskCallAssistant\bin\Release\
 5. Type a response in the speech box and click `Speak`.
 6. Use `Remember` to save phrases locally and reuse them from the suggestion list.
 7. Press `F8` or enable `Manual talk takeover` whenever you want to speak yourself instead of the bot.
+8. In the `Message reply assistant` panel, select the platform and language, detect a chat message, teach the app an incoming-message and reply pair, then generate, draft, or send a local reply.
 
 ## Sensible next upgrades
 

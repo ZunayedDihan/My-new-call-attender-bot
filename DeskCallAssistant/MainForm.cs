@@ -14,18 +14,28 @@ namespace DeskCallAssistant
         private readonly CallAutomationService _callAutomation = new CallAutomationService();
         private readonly ComputePolicyService _computePolicy = new ComputePolicyService();
         private readonly LocalLearningService _learning = new LocalLearningService();
+        private readonly MessagingAutomationService _messagingAutomation = new MessagingAutomationService();
+        private readonly MessagingReplyLearningService _replyLearning = new MessagingReplyLearningService();
         private readonly SpeechService _speech = new SpeechService();
         private readonly Timer _scanTimer = new Timer();
+        private readonly Timer _replyTimer = new Timer();
 
         private readonly CheckBox _autoAnswerCheckBox = new CheckBox();
         private readonly CheckBox _manualTalkCheckBox = new CheckBox();
         private readonly CheckBox _preferGpuCheckBox = new CheckBox();
+        private readonly CheckBox _replyAssistantCheckBox = new CheckBox();
+        private readonly CheckBox _autoSendReplyCheckBox = new CheckBox();
         private readonly NumericUpDown _scanIntervalSeconds = new NumericUpDown();
+        private readonly NumericUpDown _replyIntervalSeconds = new NumericUpDown();
         private readonly TextBox _processNamesTextBox = new TextBox();
         private readonly TextBox _buttonLabelsTextBox = new TextBox();
         private readonly TextBox _computeStatusTextBox = new TextBox();
         private readonly TextBox _speechTextBox = new TextBox();
+        private readonly TextBox _incomingMessageTextBox = new TextBox();
+        private readonly TextBox _generatedReplyTextBox = new TextBox();
         private readonly ComboBox _voicesComboBox = new ComboBox();
+        private readonly ComboBox _replyPlatformComboBox = new ComboBox();
+        private readonly ComboBox _replyLanguageComboBox = new ComboBox();
         private readonly TrackBar _rateTrackBar = new TrackBar();
         private readonly TrackBar _volumeTrackBar = new TrackBar();
         private readonly TextBox _logTextBox = new TextBox();
@@ -34,31 +44,45 @@ namespace DeskCallAssistant
         private readonly Button _rememberPhraseButton = new Button();
         private readonly Button _speakButton = new Button();
         private readonly Button _stopSpeechButton = new Button();
+        private readonly Button _detectMessageButton = new Button();
+        private readonly Button _generateReplyButton = new Button();
+        private readonly Button _learnReplyPatternButton = new Button();
+        private readonly Button _draftReplyButton = new Button();
+        private readonly Button _sendReplyButton = new Button();
         private readonly ListBox _suggestionsListBox = new ListBox();
         private readonly Label _statusLabel = new Label();
 
         private bool _scanInProgress;
+        private string _lastProcessedReplyKey = string.Empty;
 
         public MainForm()
         {
             Text = "Desk Call Assistant";
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(980, 720);
-            ClientSize = new Size(980, 720);
+            MinimumSize = new Size(1100, 1020);
+            ClientSize = new Size(1100, 1020);
             KeyPreview = true;
 
             InitializeLayout();
             LoadVoices();
+            LoadMessagingPlatforms();
+            LoadReplyLanguages();
+            UpdateComputeStatus();
+            UpdateLearningSuggestions();
 
             _scanTimer.Tick += ScanTimerOnTick;
+            _replyTimer.Tick += ReplyTimerOnTick;
             KeyDown += MainFormOnKeyDown;
+
             UpdateTimerState();
-            Log("Ready. Configure process names and button labels, then enable Auto-answer.");
+            UpdateReplyTimerState();
+            Log("Ready. Configure call automation, speech, and message reply automation from the panels above.");
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             _scanTimer.Stop();
+            _replyTimer.Stop();
             _speech.Dispose();
             base.OnFormClosed(e);
         }
@@ -70,11 +94,12 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
                 ColumnCount = 1,
-                RowCount = 5
+                RowCount = 6
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 130f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 320f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             Controls.Add(root);
@@ -82,8 +107,9 @@ namespace DeskCallAssistant
             root.Controls.Add(BuildAutomationPanel(), 0, 0);
             root.Controls.Add(BuildComputePanel(), 0, 1);
             root.Controls.Add(BuildSpeechPanel(), 0, 2);
-            root.Controls.Add(BuildLogPanel(), 0, 3);
-            root.Controls.Add(BuildStatusPanel(), 0, 4);
+            root.Controls.Add(BuildReplyAssistantPanel(), 0, 3);
+            root.Controls.Add(BuildLogPanel(), 0, 4);
+            root.Controls.Add(BuildStatusPanel(), 0, 5);
         }
 
         private Control BuildAutomationPanel()
@@ -154,7 +180,7 @@ namespace DeskCallAssistant
 
             _scanNowButton.Text = "Scan and answer now";
             _scanNowButton.AutoSize = true;
-            _scanNowButton.Click += (_, __) => AttemptAnswer(manualRun: true);
+            _scanNowButton.Click += (_, __) => AttemptAnswer(true);
 
             _inspectButtonsButton.Text = "Inspect matching buttons";
             _inspectButtonsButton.AutoSize = true;
@@ -198,7 +224,7 @@ namespace DeskCallAssistant
         {
             var group = new GroupBox
             {
-                Text = "Compute policy",
+                Text = "Compute and privacy policy",
                 Dock = DockStyle.Fill
             };
 
@@ -231,8 +257,6 @@ namespace DeskCallAssistant
             layout.Controls.Add(_preferGpuCheckBox, 0, 0);
             layout.Controls.Add(_computeStatusTextBox, 0, 1);
             group.Controls.Add(layout);
-
-            UpdateComputeStatus();
             return group;
         }
 
@@ -240,7 +264,7 @@ namespace DeskCallAssistant
         {
             var group = new GroupBox
             {
-                Text = "Typed speech",
+                Text = "Typed speech and phrase memory",
                 Dock = DockStyle.Fill
             };
 
@@ -286,13 +310,13 @@ namespace DeskCallAssistant
             _speechTextBox.Text = "Hello, please give me a moment.";
             _speechTextBox.TextChanged += (_, __) => UpdateLearningSuggestions();
 
-            _speakButton.Text = "Speak";
-            _speakButton.Dock = DockStyle.Fill;
-            _speakButton.Click += (_, __) => SpeakCurrentText();
-
             _rememberPhraseButton.Text = "Remember";
             _rememberPhraseButton.Dock = DockStyle.Fill;
             _rememberPhraseButton.Click += (_, __) => RememberCurrentPhrase("manual-save");
+
+            _speakButton.Text = "Speak";
+            _speakButton.Dock = DockStyle.Fill;
+            _speakButton.Click += (_, __) => SpeakCurrentText();
 
             _stopSpeechButton.Text = "Stop";
             _stopSpeechButton.Dock = DockStyle.Fill;
@@ -366,6 +390,142 @@ namespace DeskCallAssistant
             return group;
         }
 
+        private Control BuildReplyAssistantPanel()
+        {
+            var group = new GroupBox
+            {
+                Text = "Message reply assistant",
+                Dock = DockStyle.Fill
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                ColumnCount = 4,
+                RowCount = 6
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            _replyAssistantCheckBox.Text = "Watch chats and prepare replies";
+            _replyAssistantCheckBox.AutoSize = true;
+            _replyAssistantCheckBox.CheckedChanged += (_, __) => UpdateReplyTimerState();
+
+            _replyIntervalSeconds.Minimum = 2;
+            _replyIntervalSeconds.Maximum = 60;
+            _replyIntervalSeconds.Value = 5;
+            _replyIntervalSeconds.Width = 70;
+            _replyIntervalSeconds.ValueChanged += (_, __) => UpdateReplyTimerState();
+
+            _autoSendReplyCheckBox.Text = "Auto-send reply";
+            _autoSendReplyCheckBox.AutoSize = true;
+
+            var topPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false
+            };
+            topPanel.Controls.Add(_replyAssistantCheckBox);
+            topPanel.Controls.Add(new Label
+            {
+                Text = "Check every",
+                AutoSize = true,
+                Padding = new Padding(10, 7, 0, 0)
+            });
+            topPanel.Controls.Add(_replyIntervalSeconds);
+            topPanel.Controls.Add(new Label
+            {
+                Text = "seconds",
+                AutoSize = true,
+                Padding = new Padding(0, 7, 10, 0)
+            });
+            topPanel.Controls.Add(_autoSendReplyCheckBox);
+
+            _replyPlatformComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _replyPlatformComboBox.Dock = DockStyle.Fill;
+
+            _replyLanguageComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _replyLanguageComboBox.Dock = DockStyle.Fill;
+
+            _incomingMessageTextBox.Multiline = true;
+            _incomingMessageTextBox.ScrollBars = ScrollBars.Vertical;
+            _incomingMessageTextBox.Dock = DockStyle.Fill;
+
+            _generatedReplyTextBox.Multiline = true;
+            _generatedReplyTextBox.ScrollBars = ScrollBars.Vertical;
+            _generatedReplyTextBox.Dock = DockStyle.Fill;
+
+            _detectMessageButton.Text = "Detect";
+            _detectMessageButton.AutoSize = true;
+            _detectMessageButton.Click += (_, __) => DetectCurrentMessage(true);
+
+            _generateReplyButton.Text = "Generate";
+            _generateReplyButton.AutoSize = true;
+            _generateReplyButton.Click += (_, __) => GenerateReplyFromCurrentInput(true);
+
+            _learnReplyPatternButton.Text = "Learn pair";
+            _learnReplyPatternButton.AutoSize = true;
+            _learnReplyPatternButton.Click += (_, __) => RememberCurrentReplyPair();
+
+            _draftReplyButton.Text = "Draft reply";
+            _draftReplyButton.AutoSize = true;
+            _draftReplyButton.Click += (_, __) => DraftCurrentReply();
+
+            _sendReplyButton.Text = "Send reply";
+            _sendReplyButton.AutoSize = true;
+            _sendReplyButton.Click += (_, __) => SendCurrentReply();
+
+            layout.Controls.Add(topPanel, 0, 0);
+            layout.SetColumnSpan(topPanel, 4);
+
+            layout.Controls.Add(new Label { Text = "Platform", AutoSize = true, Dock = DockStyle.Fill }, 0, 1);
+            layout.Controls.Add(_replyPlatformComboBox, 1, 1);
+            layout.Controls.Add(new Label { Text = "Reply language", AutoSize = true, Dock = DockStyle.Fill }, 2, 1);
+            layout.Controls.Add(_replyLanguageComboBox, 3, 1);
+
+            layout.Controls.Add(new Label { Text = "Latest incoming message", AutoSize = true, Dock = DockStyle.Fill }, 0, 2);
+            layout.Controls.Add(_incomingMessageTextBox, 1, 2);
+            layout.SetColumnSpan(_incomingMessageTextBox, 3);
+
+            layout.Controls.Add(new Label { Text = "Generated reply", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
+            layout.Controls.Add(_generatedReplyTextBox, 1, 3);
+            layout.SetColumnSpan(_generatedReplyTextBox, 3);
+
+            var buttonPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight
+            };
+            buttonPanel.Controls.Add(_detectMessageButton);
+            buttonPanel.Controls.Add(_generateReplyButton);
+            buttonPanel.Controls.Add(_learnReplyPatternButton);
+            buttonPanel.Controls.Add(_draftReplyButton);
+            buttonPanel.Controls.Add(_sendReplyButton);
+            layout.Controls.Add(buttonPanel, 0, 4);
+            layout.SetColumnSpan(buttonPanel, 4);
+
+            layout.Controls.Add(new Label
+            {
+                Text = "Messenger web: official desktop web is messenger.com. Facebook also has messaging inside facebook.com.",
+                AutoSize = true,
+                Dock = DockStyle.Fill
+            }, 0, 5);
+            layout.SetColumnSpan(layout.GetControlFromPosition(0, 5), 4);
+
+            group.Controls.Add(layout);
+            return group;
+        }
+
         private Control BuildLogPanel()
         {
             var group = new GroupBox
@@ -403,18 +563,68 @@ namespace DeskCallAssistant
             {
                 _voicesComboBox.SelectedIndex = 0;
             }
+        }
 
-            UpdateLearningSuggestions();
+        private void LoadMessagingPlatforms()
+        {
+            foreach (var platform in _messagingAutomation.GetSupportedPlatforms())
+            {
+                _replyPlatformComboBox.Items.Add(platform);
+            }
+
+            if (_replyPlatformComboBox.Items.Count > 0)
+            {
+                _replyPlatformComboBox.SelectedIndex = 0;
+            }
+        }
+
+        private void LoadReplyLanguages()
+        {
+            _replyLanguageComboBox.Items.Add("Bengali");
+            _replyLanguageComboBox.Items.Add("English");
+            _replyLanguageComboBox.Items.Add("Japanese");
+            _replyLanguageComboBox.Items.Add("Banglish");
+            _replyLanguageComboBox.SelectedIndex = 0;
         }
 
         private void UpdateComputeStatus()
         {
             var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
             _computeStatusTextBox.Text = string.Format(
-                "{0}{1}{1}{2}",
+                "{0}{1}{1}{2}{1}- Phrase memory path: {3}{1}- Reply pattern path: {4}",
                 status.Summary,
                 Environment.NewLine,
-                AppPolicy.BuildPrivacySummary(_learning.StoragePath));
+                AppPolicy.BuildPrivacySummary(_learning.StoragePath),
+                _learning.StoragePath,
+                _replyLearning.StoragePath);
+        }
+
+        private void UpdateTimerState()
+        {
+            _scanTimer.Stop();
+
+            if (_autoAnswerCheckBox.Checked)
+            {
+                _scanTimer.Interval = (int)_scanIntervalSeconds.Value * 1000;
+                _scanTimer.Start();
+                SetStatus("Auto-answer is watching for incoming call buttons.");
+            }
+            else
+            {
+                SetStatus("Auto-answer is paused.");
+            }
+        }
+
+        private void UpdateReplyTimerState()
+        {
+            _replyTimer.Stop();
+
+            if (_replyAssistantCheckBox.Checked)
+            {
+                _replyTimer.Interval = (int)_replyIntervalSeconds.Value * 1000;
+                _replyTimer.Start();
+                Log("Reply assistant is watching supported chat windows.");
+            }
         }
 
         private void MainFormOnKeyDown(object sender, KeyEventArgs e)
@@ -452,25 +662,14 @@ namespace DeskCallAssistant
             }
         }
 
-        private void UpdateTimerState()
-        {
-            _scanTimer.Stop();
-
-            if (_autoAnswerCheckBox.Checked)
-            {
-                _scanTimer.Interval = (int)_scanIntervalSeconds.Value * 1000;
-                _scanTimer.Start();
-                SetStatus("Auto-answer is watching for incoming call buttons.");
-            }
-            else
-            {
-                SetStatus("Auto-answer is paused.");
-            }
-        }
-
         private void ScanTimerOnTick(object sender, EventArgs e)
         {
-            AttemptAnswer(manualRun: false);
+            AttemptAnswer(false);
+        }
+
+        private void ReplyTimerOnTick(object sender, EventArgs e)
+        {
+            ProcessReplyAssistantTick();
         }
 
         private void AttemptAnswer(bool manualRun)
@@ -596,6 +795,158 @@ namespace DeskCallAssistant
             finally
             {
                 _suggestionsListBox.EndUpdate();
+            }
+        }
+
+        private void DetectCurrentMessage(bool manualRun)
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            var snapshot = _messagingAutomation.DetectConversation(platform);
+            if (snapshot.Found)
+            {
+                _incomingMessageTextBox.Text = snapshot.LatestIncomingMessage;
+                Log(string.Format(
+                    "Detected chat on {0}: {1}",
+                    platform != null ? platform.DisplayName : "unknown platform",
+                    snapshot.WindowTitle));
+                SetStatus("Latest message detected.");
+            }
+            else if (manualRun)
+            {
+                Log(snapshot.Message);
+                SetStatus("No matching chat window detected.");
+            }
+        }
+
+        private ReplySuggestionResult GenerateReplyFromCurrentInput(bool manualRun)
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            var language = _replyLanguageComboBox.SelectedItem as string;
+            if (platform == null || string.IsNullOrWhiteSpace(language))
+            {
+                if (manualRun)
+                {
+                    Log("Select a platform and language first.");
+                }
+
+                return null;
+            }
+
+            var result = _replyLearning.SuggestReply(platform.Id, _incomingMessageTextBox.Text, language);
+            _generatedReplyTextBox.Text = result.ReplyText;
+
+            if (manualRun)
+            {
+                Log(result.UsedFallback
+                    ? "Used the fallback reply because no learned message pattern matched yet."
+                    : "Generated a reply from locally learned message patterns.");
+                SetStatus("Reply suggestion updated.");
+            }
+
+            return result;
+        }
+
+        private void RememberCurrentReplyPair()
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            var language = _replyLanguageComboBox.SelectedItem as string;
+            if (platform == null)
+            {
+                Log("Select a platform before learning a reply pattern.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_incomingMessageTextBox.Text) ||
+                string.IsNullOrWhiteSpace(_generatedReplyTextBox.Text) ||
+                string.IsNullOrWhiteSpace(language))
+            {
+                Log("Provide an incoming message, a reply, and a language before learning.");
+                return;
+            }
+
+            _replyLearning.RememberPair(
+                platform.Id,
+                _incomingMessageTextBox.Text,
+                _generatedReplyTextBox.Text,
+                language);
+            Log("Learned a new local reply pattern.");
+            SetStatus("Reply pattern saved locally.");
+        }
+
+        private void DraftCurrentReply()
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            if (platform == null)
+            {
+                Log("Select a platform before drafting a reply.");
+                return;
+            }
+
+            var result = _messagingAutomation.DraftReply(platform, _generatedReplyTextBox.Text);
+            Log(result.Message);
+            SetStatus(result.Message);
+        }
+
+        private void SendCurrentReply()
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            var language = _replyLanguageComboBox.SelectedItem as string;
+            if (platform == null)
+            {
+                Log("Select a platform before sending a reply.");
+                return;
+            }
+
+            var result = _messagingAutomation.SendReply(platform, _generatedReplyTextBox.Text);
+            Log(result.Message);
+            SetStatus(result.Message);
+
+            if (result.Found)
+            {
+                _replyLearning.RememberPair(
+                    platform.Id,
+                    _incomingMessageTextBox.Text,
+                    _generatedReplyTextBox.Text,
+                    language);
+            }
+        }
+
+        private void ProcessReplyAssistantTick()
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            var language = _replyLanguageComboBox.SelectedItem as string;
+            if (platform == null || string.IsNullOrWhiteSpace(language))
+            {
+                return;
+            }
+
+            var snapshot = _messagingAutomation.DetectConversation(platform);
+            if (!snapshot.Found || string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
+            {
+                return;
+            }
+
+            var replyKey = string.Format(
+                "{0}|{1}|{2}",
+                platform.Id,
+                language,
+                snapshot.LatestIncomingMessage.Trim());
+            if (replyKey.Equals(_lastProcessedReplyKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _incomingMessageTextBox.Text = snapshot.LatestIncomingMessage;
+            GenerateReplyFromCurrentInput(false);
+            _lastProcessedReplyKey = replyKey;
+
+            if (_autoSendReplyCheckBox.Checked)
+            {
+                SendCurrentReply();
+            }
+            else
+            {
+                DraftCurrentReply();
             }
         }
 

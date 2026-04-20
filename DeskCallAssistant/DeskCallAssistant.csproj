@@ -48,8 +48,13 @@
     <Compile Include="ComputePolicyService.cs" />
     <Compile Include="ComputeStatus.cs" />
     <Compile Include="LocalLearningService.cs" />
+    <Compile Include="ConversationSnapshot.cs" />
     <Compile Include="MainForm.cs" />
+    <Compile Include="MessagingAutomationService.cs" />
+    <Compile Include="MessagingPlatformDefinition.cs" />
+    <Compile Include="MessagingReplyLearningService.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="ReplySuggestionResult.cs" />
     <Compile Include="SpeechService.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
