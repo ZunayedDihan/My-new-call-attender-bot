@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Windows.Automation;
 using System.Windows.Forms;
 
@@ -13,6 +14,8 @@ namespace DeskCallAssistant
 {
     public sealed class MessagingAutomationService
     {
+        private DateTime _lastWhatsAppDirectActivationUtc = DateTime.MinValue;
+
         public MessagingPlatformDefinition[] GetSupportedPlatforms()
         {
             return new[]
@@ -68,7 +71,9 @@ namespace DeskCallAssistant
                     continue;
                 }
 
-                var snapshot = BuildSnapshot(platform, window);
+                var snapshot = IsWhatsAppPlatform(platform)
+                    ? BuildWhatsAppUnreadSnapshot(platform, window)
+                    : BuildSnapshot(platform, window);
                 if (snapshot.Found)
                 {
                     return snapshot;
@@ -79,13 +84,29 @@ namespace DeskCallAssistant
             {
                 Found = false,
                 PlatformId = platform.Id,
-                Message = "No matching chat window was found for the selected platform."
+                Message = IsWhatsAppPlatform(platform)
+                    ? "No unread direct WhatsApp chats were detected."
+                    : "No matching chat window was found for the selected platform."
             };
         }
 
         public ConversationSnapshot DraftReply(MessagingPlatformDefinition platform, string replyText)
         {
             var snapshot = DetectConversation(platform);
+            if (!snapshot.Found && IsWhatsAppPlatform(platform) && HasRecentWhatsAppDirectActivation())
+            {
+                var activeWhatsAppWindow = FindBestWindow(platform);
+                if (activeWhatsAppWindow != null)
+                {
+                    snapshot = BuildSnapshot(platform, activeWhatsAppWindow);
+                    if (snapshot.ComposerFound)
+                    {
+                        snapshot.Found = true;
+                        snapshot.Message = "Using the open WhatsApp direct chat that unread detection already selected.";
+                    }
+                }
+            }
+
             if (!snapshot.Found)
             {
                 return snapshot;
@@ -171,6 +192,70 @@ namespace DeskCallAssistant
             return null;
         }
 
+        private ConversationSnapshot BuildWhatsAppUnreadSnapshot(
+            MessagingPlatformDefinition platform,
+            AutomationElement window)
+        {
+            var unreadCandidates = FindWhatsAppUnreadChatCandidates(window);
+            var directCandidates = unreadCandidates
+                .Where(candidate => !IsLikelyWhatsAppGroupRow(candidate))
+                .ToArray();
+
+            if (directCandidates.Length == 0)
+            {
+                return new ConversationSnapshot
+                {
+                    Found = false,
+                    PlatformId = platform.Id,
+                    WindowTitle = SafeName(window),
+                    Message = unreadCandidates.Length == 0
+                        ? "No unread direct WhatsApp chats were detected."
+                        : "Unread WhatsApp chats were found, but they look like group conversations."
+                };
+            }
+
+            foreach (var candidate in directCandidates)
+            {
+                if (!TryActivateChat(candidate))
+                {
+                    continue;
+                }
+
+                Thread.Sleep(180);
+
+                var snapshot = BuildSnapshot(platform, window);
+                var preview = GetWhatsAppPreviewText(candidate);
+                var title = GetWhatsAppChatTitle(candidate);
+
+                if (!string.IsNullOrWhiteSpace(preview))
+                {
+                    snapshot.LatestIncomingMessage = preview;
+                }
+
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    snapshot.WindowTitle = title;
+                }
+
+                snapshot.Found = snapshot.ComposerFound || !string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage);
+                snapshot.Message = "Detected an unread direct WhatsApp chat.";
+
+                if (snapshot.Found)
+                {
+                    _lastWhatsAppDirectActivationUtc = DateTime.UtcNow;
+                    return snapshot;
+                }
+            }
+
+            return new ConversationSnapshot
+            {
+                Found = false,
+                PlatformId = platform.Id,
+                WindowTitle = SafeName(window),
+                Message = "Unread direct WhatsApp chats were found, but the message preview could not be read."
+            };
+        }
+
         private ConversationSnapshot BuildSnapshot(MessagingPlatformDefinition platform, AutomationElement window)
         {
             var texts = window.FindAll(
@@ -216,6 +301,142 @@ namespace DeskCallAssistant
                     ? "Chat window detected."
                     : "Detected a matching window but no chat composer was found."
             };
+        }
+
+        private static AutomationElement[] FindWhatsAppUnreadChatCandidates(AutomationElement window)
+        {
+            var rows = window.FindAll(
+                TreeScope.Descendants,
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.DataItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Custom)));
+
+            var matches = new List<AutomationElement>();
+            foreach (AutomationElement row in rows)
+            {
+                if (!HasUnreadMarker(row))
+                {
+                    continue;
+                }
+
+                var title = GetWhatsAppChatTitle(row);
+                if (string.IsNullOrWhiteSpace(title))
+                {
+                    continue;
+                }
+
+                if (LooksLikeToolingLabel(title))
+                {
+                    continue;
+                }
+
+                matches.Add(row);
+            }
+
+            return matches.ToArray();
+        }
+
+        private static bool HasUnreadMarker(AutomationElement element)
+        {
+            foreach (var token in GetElementTokens(element))
+            {
+                if (IsUnreadToken(token))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string GetWhatsAppChatTitle(AutomationElement element)
+        {
+            foreach (var token in GetElementTokens(element))
+            {
+                if (IsUnreadToken(token) || IsLikelyTimeToken(token) || LooksLikeToolingLabel(token))
+                {
+                    continue;
+                }
+
+                return token;
+            }
+
+            return string.Empty;
+        }
+
+        private static string GetWhatsAppPreviewText(AutomationElement element)
+        {
+            var title = GetWhatsAppChatTitle(element);
+            var tokens = GetElementTokens(element);
+
+            for (var index = tokens.Count - 1; index >= 0; index--)
+            {
+                var token = tokens[index];
+                if (token.Equals(title, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (IsUnreadToken(token) || IsLikelyTimeToken(token) || LooksLikeToolingLabel(token))
+                {
+                    continue;
+                }
+
+                return token;
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsLikelyWhatsAppGroupRow(AutomationElement element)
+        {
+            var title = GetWhatsAppChatTitle(element);
+            if (ContainsAny(title, "group", "community", "channel", "broadcast", "members", "participants"))
+            {
+                return true;
+            }
+
+            var preview = GetWhatsAppPreviewText(element);
+            var colonIndex = preview.IndexOf(':');
+            if (colonIndex > 0 && colonIndex <= 24)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryActivateChat(AutomationElement element)
+        {
+            try
+            {
+                object selectionPattern;
+                if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out selectionPattern))
+                {
+                    ((SelectionItemPattern)selectionPattern).Select();
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            if (TryInvoke(element))
+            {
+                return true;
+            }
+
+            try
+            {
+                element.SetFocus();
+                SendKeys.SendWait("{ENTER}");
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static AutomationElement FindComposer(AutomationElement window)
@@ -326,6 +547,129 @@ namespace DeskCallAssistant
             {
                 return false;
             }
+        }
+
+        private bool HasRecentWhatsAppDirectActivation()
+        {
+            return DateTime.UtcNow - _lastWhatsAppDirectActivationUtc <= TimeSpan.FromMinutes(5);
+        }
+
+        private static bool IsWhatsAppPlatform(MessagingPlatformDefinition platform)
+        {
+            return platform != null &&
+                   platform.Id.Equals("whatsapp", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static List<string> GetElementTokens(AutomationElement element)
+        {
+            var values = new List<string>();
+            AddTokens(values, SafeName(element));
+
+            var descendants = element.FindAll(
+                TreeScope.Descendants,
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Custom),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button)));
+
+            foreach (AutomationElement descendant in descendants)
+            {
+                AddTokens(values, SafeName(descendant));
+            }
+
+            return values
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static void AddTokens(List<string> values, string rawText)
+        {
+            if (string.IsNullOrWhiteSpace(rawText))
+            {
+                return;
+            }
+
+            var parts = rawText
+                .Replace("\r", "\n")
+                .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var part in parts)
+            {
+                var cleaned = part.Trim();
+                if (cleaned.Length >= 2)
+                {
+                    values.Add(cleaned);
+                }
+            }
+        }
+
+        private static bool LooksLikeToolingLabel(string text)
+        {
+            return ContainsAny(
+                text,
+                "search",
+                "filter",
+                "new chat",
+                "archived",
+                "menu",
+                "context",
+                "communities",
+                "status",
+                "channels",
+                "settings");
+        }
+
+        private static bool IsUnreadToken(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            int number;
+            if (int.TryParse(text, out number))
+            {
+                return number > 0 && number < 1000;
+            }
+
+            return ContainsAny(text, "unread", "new message", "new messages");
+        }
+
+        private static bool IsLikelyTimeToken(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text) || text.Length > 12)
+            {
+                return false;
+            }
+
+            if (ContainsAny(text, "yesterday", "today"))
+            {
+                return true;
+            }
+
+            return text.Contains(":") &&
+                   text.All(ch => char.IsDigit(ch) || ch == ':' || ch == '.' || ch == ' ' ||
+                       ch == 'A' || ch == 'P' || ch == 'M' || ch == 'a' || ch == 'p' || ch == 'm');
+        }
+
+        private static bool ContainsAny(string text, params string[] values)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return false;
+            }
+
+            foreach (var value in values)
+            {
+                if (text.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static string SafeName(AutomationElement element)
