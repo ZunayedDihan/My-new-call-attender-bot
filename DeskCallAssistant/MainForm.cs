@@ -11,15 +11,23 @@ namespace DeskCallAssistant
 {
     public sealed class MainForm : Form
     {
+        private readonly AppSettingsService _appSettingsService = new AppSettingsService();
         private readonly CallAutomationService _callAutomation = new CallAutomationService();
         private readonly ComputePolicyService _computePolicy = new ComputePolicyService();
         private readonly LocalLearningService _learning = new LocalLearningService();
         private readonly MessagingAutomationService _messagingAutomation = new MessagingAutomationService();
         private readonly MessagingReplyLearningService _replyLearning = new MessagingReplyLearningService();
         private readonly StorageLocationService _storageLocations = new StorageLocationService();
+        private readonly StartupRegistrationService _startupRegistration = new StartupRegistrationService();
         private readonly SpeechService _speech = new SpeechService();
         private readonly Timer _scanTimer = new Timer();
         private readonly Timer _replyTimer = new Timer();
+        private readonly Timer _settingsSaveTimer = new Timer();
+        private readonly NotifyIcon _trayIcon = new NotifyIcon();
+        private readonly ContextMenuStrip _trayMenu = new ContextMenuStrip();
+        private readonly ToolStripMenuItem _trayShowMenuItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem _traySpeakStopMenuItem = new ToolStripMenuItem();
+        private readonly ToolStripMenuItem _trayExitMenuItem = new ToolStripMenuItem();
         private readonly FiverrAssistantService _fiverrAssistant;
 
         private readonly CheckBox _autoAnswerCheckBox = new CheckBox();
@@ -28,6 +36,8 @@ namespace DeskCallAssistant
         private readonly CheckBox _replyAssistantCheckBox = new CheckBox();
         private readonly CheckBox _autoSendReplyCheckBox = new CheckBox();
         private readonly CheckBox _openFiverrWhenReplyAssistantStartsCheckBox = new CheckBox();
+        private readonly CheckBox _startWithWindowsCheckBox = new CheckBox();
+        private readonly CheckBox _minimizeToTrayCheckBox = new CheckBox();
         private readonly NumericUpDown _scanIntervalSeconds = new NumericUpDown();
         private readonly NumericUpDown _replyIntervalSeconds = new NumericUpDown();
         private readonly TextBox _processNamesTextBox = new TextBox();
@@ -39,6 +49,7 @@ namespace DeskCallAssistant
         private readonly TextBox _fiverrStatusTextBox = new TextBox();
         private readonly TextBox _fiverrIncomingMessageTextBox = new TextBox();
         private readonly TextBox _fiverrGeneratedReplyTextBox = new TextBox();
+        private readonly TextBox _microphoneGuideTextBox = new TextBox();
         private readonly ComboBox _voicesComboBox = new ComboBox();
         private readonly ComboBox _replyPlatformComboBox = new ComboBox();
         private readonly ComboBox _replyLanguageComboBox = new ComboBox();
@@ -64,7 +75,10 @@ namespace DeskCallAssistant
         private readonly ListBox _suggestionsListBox = new ListBox();
         private readonly Label _statusLabel = new Label();
 
+        private bool _forceExitFromTray;
         private bool _scanInProgress;
+        private bool _settingsLoaded;
+        private bool _trayBalloonShown;
         private string _lastProcessedReplyKey = string.Empty;
 
         public MainForm()
@@ -73,33 +87,64 @@ namespace DeskCallAssistant
 
             Text = "Desk Call Assistant";
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(1100, 1020);
-            ClientSize = new Size(1100, 1260);
+            MinimumSize = new Size(1180, 1100);
+            ClientSize = new Size(1180, 1360);
             KeyPreview = true;
 
             InitializeLayout();
+            InitializeTrayIcon();
             LoadVoices();
             LoadMessagingPlatforms();
             LoadReplyLanguages();
             LoadFiverrLanguages();
+            LoadSettingsFromDisk();
             UpdateComputeStatus();
             UpdateLearningSuggestions();
+            _fiverrStatusTextBox.Text = BuildFiverrStatus();
 
             _scanTimer.Tick += ScanTimerOnTick;
             _replyTimer.Tick += ReplyTimerOnTick;
+            _settingsSaveTimer.Interval = 700;
+            _settingsSaveTimer.Tick += SettingsSaveTimerOnTick;
             KeyDown += MainFormOnKeyDown;
 
             UpdateTimerState();
             UpdateReplyTimerState();
-            Log("Ready. Configure call automation, speech, and message reply automation from the panels above.");
+            Log("Ready. Configure call automation, speech, tray behavior, and message reply automation from the panels above.");
         }
 
-        protected override void OnFormClosed(FormClosedEventArgs e)
+        protected override void OnResize(EventArgs e)
         {
+            base.OnResize(e);
+
+            if (WindowState == FormWindowState.Minimized && _minimizeToTrayCheckBox.Checked)
+            {
+                HideToTray("Desk Call Assistant is still running in the system tray.");
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!_forceExitFromTray &&
+                _minimizeToTrayCheckBox.Checked &&
+                e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                HideToTray("Desk Call Assistant was minimized to the system tray.");
+                ScheduleSettingsSave();
+                return;
+            }
+
+            SaveSettingsToDisk();
             _scanTimer.Stop();
             _replyTimer.Stop();
+            _settingsSaveTimer.Stop();
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+            _trayMenu.Dispose();
             _speech.Dispose();
-            base.OnFormClosed(e);
+
+            base.OnFormClosing(e);
         }
 
         private void InitializeLayout()
@@ -112,8 +157,8 @@ namespace DeskCallAssistant
                 RowCount = 7
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 320f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
@@ -127,6 +172,30 @@ namespace DeskCallAssistant
             root.Controls.Add(BuildFiverrAssistantPanel(), 0, 4);
             root.Controls.Add(BuildLogPanel(), 0, 5);
             root.Controls.Add(BuildStatusPanel(), 0, 6);
+        }
+
+        private void InitializeTrayIcon()
+        {
+            _trayShowMenuItem.Click += (_, __) => RestoreFromTray();
+            _traySpeakStopMenuItem.Click += (_, __) => ToggleSpeechHotkey();
+            _trayExitMenuItem.Text = "Exit";
+            _trayExitMenuItem.Click += (_, __) => ExitFromTray();
+            _trayMenu.Opening += (_, __) =>
+            {
+                _trayShowMenuItem.Text = Visible ? "Bring to front" : "Show window";
+                _traySpeakStopMenuItem.Text = _speech.IsSpeaking ? "Stop speech (F9)" : "Speak draft (F9)";
+            };
+
+            _trayMenu.Items.Add(_trayShowMenuItem);
+            _trayMenu.Items.Add(_traySpeakStopMenuItem);
+            _trayMenu.Items.Add(new ToolStripSeparator());
+            _trayMenu.Items.Add(_trayExitMenuItem);
+
+            _trayIcon.Text = "Desk Call Assistant";
+            _trayIcon.Icon = SystemIcons.Application;
+            _trayIcon.ContextMenuStrip = _trayMenu;
+            _trayIcon.Visible = true;
+            _trayIcon.DoubleClick += (_, __) => RestoreFromTray();
         }
 
         private Control BuildAutomationPanel()
@@ -154,14 +223,22 @@ namespace DeskCallAssistant
 
             _autoAnswerCheckBox.Text = "Enable auto-answer";
             _autoAnswerCheckBox.Dock = DockStyle.Fill;
-            _autoAnswerCheckBox.CheckedChanged += (_, __) => UpdateTimerState();
+            _autoAnswerCheckBox.CheckedChanged += (_, __) =>
+            {
+                UpdateTimerState();
+                ScheduleSettingsSave();
+            };
 
             _scanIntervalSeconds.Minimum = 1;
             _scanIntervalSeconds.Maximum = 30;
             _scanIntervalSeconds.Value = 2;
             _scanIntervalSeconds.Dock = DockStyle.Left;
             _scanIntervalSeconds.Width = 80;
-            _scanIntervalSeconds.ValueChanged += (_, __) => UpdateTimerState();
+            _scanIntervalSeconds.ValueChanged += (_, __) =>
+            {
+                UpdateTimerState();
+                ScheduleSettingsSave();
+            };
 
             var intervalPanel = new FlowLayoutPanel
             {
@@ -189,11 +266,13 @@ namespace DeskCallAssistant
             _processNamesTextBox.ScrollBars = ScrollBars.Vertical;
             _processNamesTextBox.Dock = DockStyle.Fill;
             _processNamesTextBox.Text = "chrome\r\nmsedge\r\nWhatsApp\r\nMessenger";
+            _processNamesTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
 
             _buttonLabelsTextBox.Multiline = true;
             _buttonLabelsTextBox.ScrollBars = ScrollBars.Vertical;
             _buttonLabelsTextBox.Dock = DockStyle.Fill;
             _buttonLabelsTextBox.Text = "Answer\r\nAccept\r\nPick up\r\nJoin";
+            _buttonLabelsTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
 
             _scanNowButton.Text = "Scan and answer now";
             _scanNowButton.AutoSize = true;
@@ -241,7 +320,7 @@ namespace DeskCallAssistant
         {
             var group = new GroupBox
             {
-                Text = "Compute and privacy policy",
+                Text = "Compute, startup, and privacy policy",
                 Dock = DockStyle.Fill
             };
 
@@ -252,7 +331,7 @@ namespace DeskCallAssistant
                 ColumnCount = 1,
                 RowCount = 2
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             _preferGpuCheckBox.Text = "Prefer GPU for local bot workloads";
@@ -260,10 +339,32 @@ namespace DeskCallAssistant
             _preferGpuCheckBox.CheckedChanged += (_, __) =>
             {
                 UpdateComputeStatus();
+                ScheduleSettingsSave();
                 Log(_preferGpuCheckBox.Checked
                     ? "GPU preference enabled for local bot workloads."
                     : "GPU preference disabled for local bot workloads.");
             };
+
+            _startWithWindowsCheckBox.Text = "Start with Windows";
+            _startWithWindowsCheckBox.AutoSize = true;
+            _startWithWindowsCheckBox.CheckedChanged += (_, __) =>
+            {
+                ApplyStartupRegistrationFromUi();
+                ScheduleSettingsSave();
+            };
+
+            _minimizeToTrayCheckBox.Text = "Minimize to system tray";
+            _minimizeToTrayCheckBox.AutoSize = true;
+            _minimizeToTrayCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
+
+            var optionsPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight
+            };
+            optionsPanel.Controls.Add(_preferGpuCheckBox);
+            optionsPanel.Controls.Add(_startWithWindowsCheckBox);
+            optionsPanel.Controls.Add(_minimizeToTrayCheckBox);
 
             _computeStatusTextBox.Multiline = true;
             _computeStatusTextBox.ReadOnly = true;
@@ -271,7 +372,7 @@ namespace DeskCallAssistant
             _computeStatusTextBox.Dock = DockStyle.Fill;
             _computeStatusTextBox.BackColor = Color.White;
 
-            layout.Controls.Add(_preferGpuCheckBox, 0, 0);
+            layout.Controls.Add(optionsPanel, 0, 0);
             layout.Controls.Add(_computeStatusTextBox, 0, 1);
             group.Controls.Add(layout);
             return group;
@@ -281,7 +382,7 @@ namespace DeskCallAssistant
         {
             var group = new GroupBox
             {
-                Text = "Typed speech and phrase memory",
+                Text = "Typed speech, hotkeys, and microphone routing",
                 Dock = DockStyle.Fill
             };
 
@@ -290,7 +391,7 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
                 ColumnCount = 4,
-                RowCount = 6
+                RowCount = 7
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -300,32 +401,51 @@ namespace DeskCallAssistant
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 90f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 110f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
 
             _manualTalkCheckBox.Text = "Manual talk takeover (F8)";
             _manualTalkCheckBox.AutoSize = true;
-            _manualTalkCheckBox.CheckedChanged += (_, __) => ApplyManualTalkMode();
+            _manualTalkCheckBox.CheckedChanged += (_, __) =>
+            {
+                ApplyManualTalkMode();
+                ScheduleSettingsSave();
+            };
 
             _voicesComboBox.Dock = DockStyle.Fill;
             _voicesComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _voicesComboBox.SelectedIndexChanged += (_, __) => ScheduleSettingsSave();
 
             _rateTrackBar.Dock = DockStyle.Fill;
             _rateTrackBar.Minimum = -5;
             _rateTrackBar.Maximum = 5;
             _rateTrackBar.TickFrequency = 1;
+            _rateTrackBar.ValueChanged += (_, __) => ScheduleSettingsSave();
 
             _volumeTrackBar.Dock = DockStyle.Fill;
             _volumeTrackBar.Minimum = 0;
             _volumeTrackBar.Maximum = 100;
             _volumeTrackBar.TickFrequency = 10;
             _volumeTrackBar.Value = 100;
+            _volumeTrackBar.ValueChanged += (_, __) => ScheduleSettingsSave();
 
             _speechTextBox.Multiline = true;
             _speechTextBox.ScrollBars = ScrollBars.Vertical;
             _speechTextBox.Dock = DockStyle.Fill;
             _speechTextBox.Text = "Hello, please give me a moment.";
-            _speechTextBox.TextChanged += (_, __) => UpdateLearningSuggestions();
+            _speechTextBox.TextChanged += (_, __) =>
+            {
+                UpdateLearningSuggestions();
+                ScheduleSettingsSave();
+            };
+
+            _microphoneGuideTextBox.Multiline = true;
+            _microphoneGuideTextBox.ReadOnly = true;
+            _microphoneGuideTextBox.ScrollBars = ScrollBars.Vertical;
+            _microphoneGuideTextBox.Dock = DockStyle.Fill;
+            _microphoneGuideTextBox.BackColor = Color.White;
+            _microphoneGuideTextBox.Text = BuildMicrophoneRoutingGuidance();
 
             _rememberPhraseButton.Text = "Remember";
             _rememberPhraseButton.Dock = DockStyle.Fill;
@@ -341,6 +461,7 @@ namespace DeskCallAssistant
             {
                 _speech.Stop();
                 Log("Speech stopped.");
+                SetStatus("Speech stopped.");
             };
 
             _suggestionsListBox.Dock = DockStyle.Fill;
@@ -359,7 +480,7 @@ namespace DeskCallAssistant
             layout.SetColumnSpan(_manualTalkCheckBox, 2);
             layout.Controls.Add(new Label
             {
-                Text = "When enabled, the bot stops speaking so you can use your own microphone.",
+                Text = "Speech hotkey: F9 to speak or stop the current draft.",
                 AutoSize = true,
                 Dock = DockStyle.Fill
             }, 2, 0);
@@ -374,7 +495,7 @@ namespace DeskCallAssistant
             layout.Controls.Add(_volumeTrackBar, 1, 2);
             layout.Controls.Add(new Label
             {
-                Text = "Tip: this app speaks to your default speaker. For clean in-call audio, route your speaker output into a virtual microphone.",
+                Text = "Tip: keep Manual talk takeover off when you want the bot to speak.",
                 AutoSize = true,
                 Dock = DockStyle.Fill
             }, 2, 2);
@@ -384,8 +505,12 @@ namespace DeskCallAssistant
             layout.Controls.Add(_speechTextBox, 1, 3);
             layout.SetColumnSpan(_speechTextBox, 3);
 
-            layout.Controls.Add(new Label { Text = "Local suggestions", AutoSize = true, Dock = DockStyle.Fill }, 0, 4);
-            layout.Controls.Add(_suggestionsListBox, 1, 4);
+            layout.Controls.Add(new Label { Text = "Microphone routing guide", AutoSize = true, Dock = DockStyle.Fill }, 0, 4);
+            layout.Controls.Add(_microphoneGuideTextBox, 1, 4);
+            layout.SetColumnSpan(_microphoneGuideTextBox, 3);
+
+            layout.Controls.Add(new Label { Text = "Local suggestions", AutoSize = true, Dock = DockStyle.Fill }, 0, 5);
+            layout.Controls.Add(_suggestionsListBox, 1, 5);
             layout.SetColumnSpan(_suggestionsListBox, 3);
 
             var actionPanel = new TableLayoutPanel
@@ -400,7 +525,7 @@ namespace DeskCallAssistant
             actionPanel.Controls.Add(_rememberPhraseButton, 0, 0);
             actionPanel.Controls.Add(_speakButton, 1, 0);
             actionPanel.Controls.Add(_stopSpeechButton, 2, 0);
-            layout.Controls.Add(actionPanel, 1, 5);
+            layout.Controls.Add(actionPanel, 1, 6);
             layout.SetColumnSpan(actionPanel, 3);
 
             group.Controls.Add(layout);
@@ -435,19 +560,29 @@ namespace DeskCallAssistant
 
             _replyAssistantCheckBox.Text = "Watch chats and prepare replies";
             _replyAssistantCheckBox.AutoSize = true;
-            _replyAssistantCheckBox.CheckedChanged += (_, __) => UpdateReplyTimerState();
+            _replyAssistantCheckBox.CheckedChanged += (_, __) =>
+            {
+                UpdateReplyTimerState();
+                ScheduleSettingsSave();
+            };
 
             _replyIntervalSeconds.Minimum = 2;
             _replyIntervalSeconds.Maximum = 60;
             _replyIntervalSeconds.Value = 5;
             _replyIntervalSeconds.Width = 70;
-            _replyIntervalSeconds.ValueChanged += (_, __) => UpdateReplyTimerState();
+            _replyIntervalSeconds.ValueChanged += (_, __) =>
+            {
+                UpdateReplyTimerState();
+                ScheduleSettingsSave();
+            };
 
             _autoSendReplyCheckBox.Text = "Auto-send reply";
             _autoSendReplyCheckBox.AutoSize = true;
+            _autoSendReplyCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
 
             _openFiverrWhenReplyAssistantStartsCheckBox.Text = "Open Fiverr inbox when assistant starts";
             _openFiverrWhenReplyAssistantStartsCheckBox.AutoSize = true;
+            _openFiverrWhenReplyAssistantStartsCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
 
             var topPanel = new FlowLayoutPanel
             {
@@ -474,17 +609,21 @@ namespace DeskCallAssistant
 
             _replyPlatformComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             _replyPlatformComboBox.Dock = DockStyle.Fill;
+            _replyPlatformComboBox.SelectedIndexChanged += (_, __) => ScheduleSettingsSave();
 
             _replyLanguageComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             _replyLanguageComboBox.Dock = DockStyle.Fill;
+            _replyLanguageComboBox.SelectedIndexChanged += (_, __) => ScheduleSettingsSave();
 
             _incomingMessageTextBox.Multiline = true;
             _incomingMessageTextBox.ScrollBars = ScrollBars.Vertical;
             _incomingMessageTextBox.Dock = DockStyle.Fill;
+            _incomingMessageTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
 
             _generatedReplyTextBox.Multiline = true;
             _generatedReplyTextBox.ScrollBars = ScrollBars.Vertical;
             _generatedReplyTextBox.Dock = DockStyle.Fill;
+            _generatedReplyTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
 
             _detectMessageButton.Text = "Detect";
             _detectMessageButton.AutoSize = true;
@@ -582,13 +721,16 @@ namespace DeskCallAssistant
             _fiverrIncomingMessageTextBox.Multiline = true;
             _fiverrIncomingMessageTextBox.ScrollBars = ScrollBars.Vertical;
             _fiverrIncomingMessageTextBox.Dock = DockStyle.Fill;
+            _fiverrIncomingMessageTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
 
             _fiverrGeneratedReplyTextBox.Multiline = true;
             _fiverrGeneratedReplyTextBox.ScrollBars = ScrollBars.Vertical;
             _fiverrGeneratedReplyTextBox.Dock = DockStyle.Fill;
+            _fiverrGeneratedReplyTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
 
             _fiverrLanguageComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             _fiverrLanguageComboBox.Dock = DockStyle.Fill;
+            _fiverrLanguageComboBox.SelectedIndexChanged += (_, __) => ScheduleSettingsSave();
 
             _openFiverrInboxButton.Text = "Open inbox";
             _openFiverrInboxButton.AutoSize = true;
@@ -612,7 +754,7 @@ namespace DeskCallAssistant
 
             var header = new Label
             {
-                Text = "This helper does not randomize refreshes, evade platform detection, send replies automatically, or store credentials. Open https://www.fiverr.com/inbox yourself, then use this panel to read and draft.",
+                Text = "This helper does not randomize refreshes, evade platform detection, send replies automatically, or store credentials. Open the official inbox page and use this panel to read and draft.",
                 AutoSize = true,
                 Dock = DockStyle.Fill
             };
@@ -717,16 +859,145 @@ namespace DeskCallAssistant
             _fiverrLanguageComboBox.SelectedIndex = 0;
         }
 
+        private void LoadSettingsFromDisk()
+        {
+            var settings = _appSettingsService.Load();
+            _settingsLoaded = false;
+
+            _autoAnswerCheckBox.Checked = settings.AutoAnswerEnabled;
+            _scanIntervalSeconds.Value = NormalizeDecimal(settings.ScanIntervalSeconds, _scanIntervalSeconds.Minimum, _scanIntervalSeconds.Maximum, 2);
+            _processNamesTextBox.Text = string.IsNullOrWhiteSpace(settings.ProcessNamesText) ? _processNamesTextBox.Text : settings.ProcessNamesText;
+            _buttonLabelsTextBox.Text = string.IsNullOrWhiteSpace(settings.ButtonLabelsText) ? _buttonLabelsTextBox.Text : settings.ButtonLabelsText;
+            _preferGpuCheckBox.Checked = settings.PreferGpu;
+            _startWithWindowsCheckBox.Checked = settings.StartWithWindows || _startupRegistration.IsEnabled();
+            _minimizeToTrayCheckBox.Checked = settings.MinimizeToTray;
+            _manualTalkCheckBox.Checked = settings.ManualTalkEnabled;
+
+            if (!string.IsNullOrWhiteSpace(settings.VoiceName))
+            {
+                SelectComboItemByText(_voicesComboBox, settings.VoiceName);
+            }
+
+            _rateTrackBar.Value = NormalizeInt(settings.VoiceRate, _rateTrackBar.Minimum, _rateTrackBar.Maximum, 0);
+            _volumeTrackBar.Value = NormalizeInt(settings.VoiceVolume, _volumeTrackBar.Minimum, _volumeTrackBar.Maximum, 100);
+            _speechTextBox.Text = string.IsNullOrWhiteSpace(settings.SpeechText) ? _speechTextBox.Text : settings.SpeechText;
+
+            _replyAssistantCheckBox.Checked = settings.ReplyAssistantEnabled;
+            _autoSendReplyCheckBox.Checked = settings.AutoSendReplyEnabled;
+            _openFiverrWhenReplyAssistantStartsCheckBox.Checked = settings.OpenFiverrOnAssistantStarts;
+            _replyIntervalSeconds.Value = NormalizeDecimal(settings.ReplyIntervalSeconds, _replyIntervalSeconds.Minimum, _replyIntervalSeconds.Maximum, 5);
+            SelectPlatformById(settings.ReplyPlatformId);
+            SelectComboItemByText(_replyLanguageComboBox, settings.ReplyLanguage);
+            _incomingMessageTextBox.Text = settings.IncomingMessageText ?? string.Empty;
+            _generatedReplyTextBox.Text = settings.GeneratedReplyText ?? string.Empty;
+            SelectComboItemByText(_fiverrLanguageComboBox, settings.FiverrLanguage);
+            _fiverrIncomingMessageTextBox.Text = settings.FiverrIncomingMessageText ?? string.Empty;
+            _fiverrGeneratedReplyTextBox.Text = settings.FiverrGeneratedReplyText ?? string.Empty;
+
+            if (settings.WindowWidth > MinimumSize.Width)
+            {
+                Width = settings.WindowWidth;
+            }
+
+            if (settings.WindowHeight > MinimumSize.Height)
+            {
+                Height = settings.WindowHeight;
+            }
+
+            _settingsLoaded = true;
+            ApplyStartupRegistrationFromUi();
+            ApplyManualTalkMode();
+        }
+
+        private void SaveSettingsToDisk()
+        {
+            if (!_settingsLoaded)
+            {
+                return;
+            }
+
+            _appSettingsService.Save(BuildCurrentSettings());
+        }
+
+        private AppSettings BuildCurrentSettings()
+        {
+            var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+
+            return new AppSettings
+            {
+                AutoAnswerEnabled = _autoAnswerCheckBox.Checked,
+                ScanIntervalSeconds = _scanIntervalSeconds.Value,
+                ProcessNamesText = _processNamesTextBox.Text,
+                ButtonLabelsText = _buttonLabelsTextBox.Text,
+                PreferGpu = _preferGpuCheckBox.Checked,
+                StartWithWindows = _startWithWindowsCheckBox.Checked,
+                MinimizeToTray = _minimizeToTrayCheckBox.Checked,
+                ManualTalkEnabled = _manualTalkCheckBox.Checked,
+                VoiceName = _voicesComboBox.SelectedItem as string,
+                VoiceRate = _rateTrackBar.Value,
+                VoiceVolume = _volumeTrackBar.Value,
+                SpeechText = _speechTextBox.Text,
+                ReplyAssistantEnabled = _replyAssistantCheckBox.Checked,
+                AutoSendReplyEnabled = _autoSendReplyCheckBox.Checked,
+                OpenFiverrOnAssistantStarts = _openFiverrWhenReplyAssistantStartsCheckBox.Checked,
+                ReplyIntervalSeconds = _replyIntervalSeconds.Value,
+                ReplyPlatformId = GetSelectedPlatformId(),
+                ReplyLanguage = _replyLanguageComboBox.SelectedItem as string,
+                IncomingMessageText = _incomingMessageTextBox.Text,
+                GeneratedReplyText = _generatedReplyTextBox.Text,
+                FiverrLanguage = _fiverrLanguageComboBox.SelectedItem as string,
+                FiverrIncomingMessageText = _fiverrIncomingMessageTextBox.Text,
+                FiverrGeneratedReplyText = _fiverrGeneratedReplyTextBox.Text,
+                WindowWidth = bounds.Width,
+                WindowHeight = bounds.Height
+            };
+        }
+
+        private void SettingsSaveTimerOnTick(object sender, EventArgs e)
+        {
+            _settingsSaveTimer.Stop();
+            SaveSettingsToDisk();
+        }
+
+        private void ScheduleSettingsSave()
+        {
+            if (!_settingsLoaded)
+            {
+                return;
+            }
+
+            _settingsSaveTimer.Stop();
+            _settingsSaveTimer.Start();
+        }
+
+        private void ApplyStartupRegistrationFromUi()
+        {
+            try
+            {
+                _startupRegistration.SetEnabled(_startWithWindowsCheckBox.Checked, Application.ExecutablePath);
+                UpdateComputeStatus();
+            }
+            catch (Exception ex)
+            {
+                Log("Startup registration error: " + ex.Message);
+            }
+        }
+
         private void UpdateComputeStatus()
         {
             var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
             _computeStatusTextBox.Text = string.Format(
-                "{0}{1}{1}{2}{1}- Phrase memory path: {3}{1}- Reply pattern path: {4}",
+                "{0}{1}{1}{2}{1}- Phrase memory path: {3}{1}- Reply pattern path: {4}{1}- Settings path: {5}{1}- Start with Windows: {6}{1}- Tray behavior: {7}",
                 status.Summary,
                 Environment.NewLine,
                 AppPolicy.BuildPrivacySummary(_learning.StoragePath),
                 _learning.StoragePath,
-                _replyLearning.StoragePath);
+                _replyLearning.StoragePath,
+                _appSettingsService.SettingsPath,
+                _startWithWindowsCheckBox.Checked ? "enabled" : "disabled",
+                _minimizeToTrayCheckBox.Checked ? "minimize to tray is enabled" : "window closes normally");
+
+            _fiverrStatusTextBox.Text = BuildFiverrStatus();
         }
 
         private string BuildFiverrStatus()
@@ -736,6 +1007,18 @@ namespace DeskCallAssistant
                 _fiverrAssistant.StorageStatus,
                 Environment.NewLine,
                 _fiverrAssistant.InboxUrlValue);
+        }
+
+        private string BuildMicrophoneRoutingGuidance()
+        {
+            return string.Join(Environment.NewLine, new[]
+            {
+                "1. Install a virtual audio cable such as VB-CABLE or a mixer such as VoiceMeeter.",
+                "2. Set the app's spoken output to your normal speaker path, then mirror that output into the virtual microphone path.",
+                "3. In Messenger, WhatsApp, Telegram, or your browser call settings, choose the virtual cable as the microphone input.",
+                "4. Use F9 to speak or stop the current draft quickly while watching the call.",
+                "5. Use F8 for Manual talk takeover whenever you want to use your real microphone instead of the bot voice."
+            });
         }
 
         private void UpdateTimerState()
@@ -773,13 +1056,39 @@ namespace DeskCallAssistant
 
         private void MainFormOnKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode != Keys.F8)
+            if (e.KeyCode == Keys.F8)
             {
+                _manualTalkCheckBox.Checked = !_manualTalkCheckBox.Checked;
+                e.Handled = true;
                 return;
             }
 
-            _manualTalkCheckBox.Checked = !_manualTalkCheckBox.Checked;
-            e.Handled = true;
+            if (e.KeyCode == Keys.F9)
+            {
+                ToggleSpeechHotkey();
+                e.Handled = true;
+            }
+        }
+
+        private void ToggleSpeechHotkey()
+        {
+            if (_manualTalkCheckBox.Checked)
+            {
+                Log("Manual talk takeover is active, so the speech hotkey will not speak.");
+                SetStatus("Disable Manual talk takeover to use the bot voice.");
+                return;
+            }
+
+            if (_speech.IsSpeaking)
+            {
+                _speech.Stop();
+                Log("Speech stopped with F9.");
+                SetStatus("Speech stopped.");
+            }
+            else
+            {
+                SpeakCurrentText();
+            }
         }
 
         private void ApplyManualTalkMode()
@@ -940,6 +1249,34 @@ namespace DeskCallAssistant
             {
                 _suggestionsListBox.EndUpdate();
             }
+        }
+
+        private void HideToTray(string balloonText)
+        {
+            ShowInTaskbar = false;
+            Hide();
+
+            if (!_trayBalloonShown)
+            {
+                _trayIcon.BalloonTipTitle = "Desk Call Assistant";
+                _trayIcon.BalloonTipText = balloonText;
+                _trayIcon.ShowBalloonTip(2000);
+                _trayBalloonShown = true;
+            }
+        }
+
+        private void RestoreFromTray()
+        {
+            Show();
+            ShowInTaskbar = true;
+            WindowState = FormWindowState.Normal;
+            Activate();
+        }
+
+        private void ExitFromTray()
+        {
+            _forceExitFromTray = true;
+            Close();
         }
 
         private void DetectFiverrMessage()
@@ -1169,6 +1506,68 @@ namespace DeskCallAssistant
             return new AnswerConfig(
                 _processNamesTextBox.Lines,
                 _buttonLabelsTextBox.Lines);
+        }
+
+        private string GetSelectedPlatformId()
+        {
+            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            return platform != null ? platform.Id : string.Empty;
+        }
+
+        private void SelectPlatformById(string platformId)
+        {
+            if (string.IsNullOrWhiteSpace(platformId))
+            {
+                return;
+            }
+
+            for (var index = 0; index < _replyPlatformComboBox.Items.Count; index++)
+            {
+                var platform = _replyPlatformComboBox.Items[index] as MessagingPlatformDefinition;
+                if (platform != null && platform.Id.Equals(platformId, StringComparison.OrdinalIgnoreCase))
+                {
+                    _replyPlatformComboBox.SelectedIndex = index;
+                    return;
+                }
+            }
+        }
+
+        private static void SelectComboItemByText(ComboBox comboBox, string text)
+        {
+            if (comboBox == null || string.IsNullOrWhiteSpace(text))
+            {
+                return;
+            }
+
+            for (var index = 0; index < comboBox.Items.Count; index++)
+            {
+                var candidate = comboBox.Items[index] as string;
+                if (candidate != null && candidate.Equals(text, StringComparison.OrdinalIgnoreCase))
+                {
+                    comboBox.SelectedIndex = index;
+                    return;
+                }
+            }
+        }
+
+        private static int NormalizeInt(int value, int minimum, int maximum, int fallback)
+        {
+            if (value < minimum || value > maximum)
+            {
+                return fallback;
+            }
+
+            return value;
+        }
+
+        private static decimal NormalizeDecimal(decimal value, decimal minimum, decimal maximum, decimal fallback)
+        {
+            if (value < minimum || value > maximum)
+            {
+                return fallback;
+            }
+
+            return value;
         }
 
         private void Log(string message)

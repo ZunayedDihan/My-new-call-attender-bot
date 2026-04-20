@@ -12,6 +12,18 @@ namespace DeskCallAssistant
     public sealed class SpeechService : IDisposable
     {
         private readonly SpeechSynthesizer _synthesizer = new SpeechSynthesizer();
+        private bool _isSpeaking;
+
+        public SpeechService()
+        {
+            _synthesizer.SpeakStarted += (_, __) => _isSpeaking = true;
+            _synthesizer.SpeakCompleted += (_, __) => _isSpeaking = false;
+        }
+
+        public bool IsSpeaking
+        {
+            get { return _isSpeaking; }
+        }
 
         public string[] GetInstalledVoices()
         {
@@ -47,6 +59,7 @@ namespace DeskCallAssistant
         public void Stop()
         {
             _synthesizer.SpeakAsyncCancelAll();
+            _isSpeaking = false;
         }
 
         public void Dispose()

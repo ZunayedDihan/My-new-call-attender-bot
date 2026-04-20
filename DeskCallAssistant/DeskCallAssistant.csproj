@@ -37,11 +37,14 @@
     <Reference Include="System.Management" />
     <Reference Include="System.Speech" />
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Xml" />
     <Reference Include="UIAutomationClient" />
     <Reference Include="UIAutomationTypes" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AppPolicy.cs" />
+    <Compile Include="AppSettings.cs" />
+    <Compile Include="AppSettingsService.cs" />
     <Compile Include="AnswerConfig.cs" />
     <Compile Include="CallAutomationService.cs" />
     <Compile Include="CallActionResult.cs" />
@@ -57,6 +60,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="ReplySuggestionResult.cs" />
     <Compile Include="SpeechService.cs" />
+    <Compile Include="StartupRegistrationService.cs" />
     <Compile Include="StorageLocationService.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

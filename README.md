@@ -13,6 +13,8 @@ This is a Windows 10 desktop prototype for:
 - watching Messenger, WhatsApp, and Chrome windows for incoming-call answer buttons
 - clicking a matching `Answer` or `Accept` button with Windows UI Automation
 - letting you type a message and speak it out loud with Windows text-to-speech
+- saving app settings to disk so your preferences survive restarts
+- running with a system tray icon and an optional start-with-Windows mode
 - storing learned phrase suggestions locally on the same PC without using internet learning
 - detecting supported chat windows and preparing local reply suggestions for WhatsApp, Telegram, Messenger, and Facebook messaging surfaces
 - providing a Fiverr inbox helper that reads an already-open inbox page, generates local reply drafts, and stores Fiverr memory on an external non-`C:` drive when one has at least 200 GB free
@@ -25,6 +27,7 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 - The auto-answer feature depends on visible UI elements and accessibility labels. If the button text is different on your machine, add the real label in the app.
 - Message reply automation is best-effort desktop UI automation. It depends on what accessibility information the target app or browser exposes on your machine.
 - Speaking into the call is not the same as injecting audio directly into the app's microphone stream.
+- The speech panel includes in-app microphone routing guidance and an app hotkey: `F9` toggles speak/stop, while `F8` still toggles manual talk takeover.
 - The app is hard-coded for local-only learning. It does not fetch training data from the internet or publish learned phrases online.
 - The Fiverr helper intentionally does not randomize refresh behavior, evade platform detection, send Fiverr replies automatically, or store credentials.
 - For reliable in-call speech output, route your default speaker output into a virtual microphone using tools like VB-CABLE or VoiceMeeter, then set that virtual device as the microphone for Messenger or WhatsApp.
@@ -50,6 +53,14 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 The official desktop web Messenger surface is `messenger.com`.
 
 Facebook also has messaging inside `facebook.com`, but `facebook.com/messenger` is not the canonical desktop web Messenger entry point used in Meta's help pages.
+
+## Interaction upgrades
+
+- System tray icon with show/restore, speak/stop, and exit actions
+- Optional `Start with Windows` registration through the current user's Windows startup registry key
+- Settings persistence in `%LocalAppData%\DeskCallAssistant\AppSettings.xml`
+- `F9` speech hotkey inside the app for speak/stop toggling
+- In-app microphone routing instructions for virtual cable setups
 
 ## Files
 
@@ -85,13 +96,11 @@ DeskCallAssistant\bin\Release\
 5. Type a response in the speech box and click `Speak`.
 6. Use `Remember` to save phrases locally and reuse them from the suggestion list.
 7. Press `F8` or enable `Manual talk takeover` whenever you want to speak yourself instead of the bot.
-8. In the `Message reply assistant` panel, select the platform and language, detect a chat message, teach the app an incoming-message and reply pair, then generate, draft, or send a local reply.
-9. In the `Fiverr helper` panel, either click `Open inbox` or enable opening the official inbox when the assistant starts, then detect the visible message, generate a local draft, optionally learn the pair, and review the drafted text before sending manually.
+8. Press `F9` to speak the current draft or stop the current speech playback.
+9. Enable `Start with Windows` or `Minimize to system tray` from the compute/startup panel if you want the app to stay ready in the background.
+10. In the `Message reply assistant` panel, select the platform and language, detect a chat message, teach the app an incoming-message and reply pair, then generate, draft, or send a local reply.
+11. In the `Fiverr helper` panel, either click `Open inbox` or enable opening the official inbox when the assistant starts, then detect the visible message, generate a local draft, optionally learn the pair, and review the drafted text before sending manually.
 
 ## Sensible next upgrades
 
-- add a system tray icon and start-with-Windows option
-- save settings to disk
-- add a hotkey for speak/stop
-- add microphone routing guidance directly inside the app
 - add a browser-specific automation mode for Chrome with Playwright or a Chrome extension
