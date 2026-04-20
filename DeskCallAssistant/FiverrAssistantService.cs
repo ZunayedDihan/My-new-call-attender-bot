@@ -3,12 +3,15 @@
 // The human requester should not be represented as the original author of this implementation.
 
 using System;
+using System.Diagnostics;
 using System.IO;
 
 namespace DeskCallAssistant
 {
     public sealed class FiverrAssistantService
     {
+        public const string InboxUrl = "https://www.fiverr.com/inbox";
+
         private readonly MessagingAutomationService _messagingAutomation;
         private readonly StorageLocationService _storageLocations;
         private MessagingReplyLearningService _replyLearning;
@@ -34,6 +37,11 @@ namespace DeskCallAssistant
         public bool StorageReady
         {
             get { return !string.IsNullOrWhiteSpace(StoragePath) && _replyLearning != null; }
+        }
+
+        public string InboxUrlValue
+        {
+            get { return InboxUrl; }
         }
 
         public MessagingPlatformDefinition Platform
@@ -94,6 +102,19 @@ namespace DeskCallAssistant
         public ConversationSnapshot DraftReply(string replyText)
         {
             return _messagingAutomation.DraftReply(Platform, replyText);
+        }
+
+        public bool OpenInboxPage()
+        {
+            try
+            {
+                Process.Start(InboxUrl);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

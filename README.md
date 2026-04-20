@@ -40,9 +40,10 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 
 - Official inbox URL: `https://www.fiverr.com/inbox`
 - Safe workflow: you open the inbox page yourself in your browser, then the app reads visible message content and drafts a reply for your review.
+- Convenience workflow: you can also let the app open the official inbox URL in your default browser when the assistant starts, or click `Open inbox` manually.
 - Memory storage rule: Fiverr memory is stored only on a non-`C:` drive, and only if that drive has at least 200 GB free.
 - Credential handling: no Fiverr credentials, cookies, passwords, or browser tokens are written into the source code or helper storage.
-- Automation boundary: the helper does not implement stealth refresh logic or automatic Fiverr sending.
+- Automation boundary: the helper does not implement stealth refresh logic, CSS injection into Fiverr pages, or automatic Fiverr sending.
 
 ## Verified Messenger web note
 
@@ -85,7 +86,7 @@ DeskCallAssistant\bin\Release\
 6. Use `Remember` to save phrases locally and reuse them from the suggestion list.
 7. Press `F8` or enable `Manual talk takeover` whenever you want to speak yourself instead of the bot.
 8. In the `Message reply assistant` panel, select the platform and language, detect a chat message, teach the app an incoming-message and reply pair, then generate, draft, or send a local reply.
-9. In the `Fiverr helper` panel, open `https://www.fiverr.com/inbox` yourself, detect the visible message, generate a local draft, optionally learn the pair, and review the drafted text before sending manually.
+9. In the `Fiverr helper` panel, either click `Open inbox` or enable opening the official inbox when the assistant starts, then detect the visible message, generate a local draft, optionally learn the pair, and review the drafted text before sending manually.
 
 ## Sensible next upgrades
 

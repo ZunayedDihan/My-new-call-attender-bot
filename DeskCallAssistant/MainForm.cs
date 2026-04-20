@@ -27,6 +27,7 @@ namespace DeskCallAssistant
         private readonly CheckBox _preferGpuCheckBox = new CheckBox();
         private readonly CheckBox _replyAssistantCheckBox = new CheckBox();
         private readonly CheckBox _autoSendReplyCheckBox = new CheckBox();
+        private readonly CheckBox _openFiverrWhenReplyAssistantStartsCheckBox = new CheckBox();
         private readonly NumericUpDown _scanIntervalSeconds = new NumericUpDown();
         private readonly NumericUpDown _replyIntervalSeconds = new NumericUpDown();
         private readonly TextBox _processNamesTextBox = new TextBox();
@@ -55,6 +56,7 @@ namespace DeskCallAssistant
         private readonly Button _generateFiverrReplyButton = new Button();
         private readonly Button _learnFiverrPairButton = new Button();
         private readonly Button _draftFiverrReplyButton = new Button();
+        private readonly Button _openFiverrInboxButton = new Button();
         private readonly Button _generateReplyButton = new Button();
         private readonly Button _learnReplyPatternButton = new Button();
         private readonly Button _draftReplyButton = new Button();
@@ -444,6 +446,9 @@ namespace DeskCallAssistant
             _autoSendReplyCheckBox.Text = "Auto-send reply";
             _autoSendReplyCheckBox.AutoSize = true;
 
+            _openFiverrWhenReplyAssistantStartsCheckBox.Text = "Open Fiverr inbox when assistant starts";
+            _openFiverrWhenReplyAssistantStartsCheckBox.AutoSize = true;
+
             var topPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -465,6 +470,7 @@ namespace DeskCallAssistant
                 Padding = new Padding(0, 7, 10, 0)
             });
             topPanel.Controls.Add(_autoSendReplyCheckBox);
+            topPanel.Controls.Add(_openFiverrWhenReplyAssistantStartsCheckBox);
 
             _replyPlatformComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             _replyPlatformComboBox.Dock = DockStyle.Fill;
@@ -584,6 +590,10 @@ namespace DeskCallAssistant
             _fiverrLanguageComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             _fiverrLanguageComboBox.Dock = DockStyle.Fill;
 
+            _openFiverrInboxButton.Text = "Open inbox";
+            _openFiverrInboxButton.AutoSize = true;
+            _openFiverrInboxButton.Click += (_, __) => OpenFiverrInbox();
+
             _detectFiverrMessageButton.Text = "Read open inbox";
             _detectFiverrMessageButton.AutoSize = true;
             _detectFiverrMessageButton.Click += (_, __) => DetectFiverrMessage();
@@ -625,6 +635,7 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight
             };
+            buttonPanel.Controls.Add(_openFiverrInboxButton);
             buttonPanel.Controls.Add(_detectFiverrMessageButton);
             buttonPanel.Controls.Add(_generateFiverrReplyButton);
             buttonPanel.Controls.Add(_learnFiverrPairButton);
@@ -721,9 +732,10 @@ namespace DeskCallAssistant
         private string BuildFiverrStatus()
         {
             return string.Format(
-                "{0}{1}Official inbox URL: https://www.fiverr.com/inbox{1}Credentials are not written into source code or helper storage.",
+                "{0}{1}Official inbox URL: {2}{1}Credentials are not written into source code or helper storage.{1}CSS injection into Fiverr pages is intentionally not used.",
                 _fiverrAssistant.StorageStatus,
-                Environment.NewLine);
+                Environment.NewLine,
+                _fiverrAssistant.InboxUrlValue);
         }
 
         private void UpdateTimerState()
@@ -751,6 +763,11 @@ namespace DeskCallAssistant
                 _replyTimer.Interval = (int)_replyIntervalSeconds.Value * 1000;
                 _replyTimer.Start();
                 Log("Reply assistant is watching supported chat windows.");
+
+                if (_openFiverrWhenReplyAssistantStartsCheckBox.Checked)
+                {
+                    OpenFiverrInbox();
+                }
             }
         }
 
@@ -939,6 +956,21 @@ namespace DeskCallAssistant
             _fiverrStatusTextBox.Text = BuildFiverrStatus();
             Log("Read the visible Fiverr inbox content from the open browser window.");
             SetStatus("Fiverr inbox content detected.");
+        }
+
+        private void OpenFiverrInbox()
+        {
+            var opened = _fiverrAssistant.OpenInboxPage();
+            if (opened)
+            {
+                Log("Opened the official Fiverr inbox page in the default browser.");
+                SetStatus("Fiverr inbox page opened.");
+            }
+            else
+            {
+                Log("Failed to open the Fiverr inbox page automatically.");
+                SetStatus("Could not open Fiverr inbox automatically.");
+            }
         }
 
         private void GenerateFiverrReply()
