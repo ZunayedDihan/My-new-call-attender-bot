@@ -29,6 +29,15 @@ namespace DeskCallAssistant
         private readonly ToolStripMenuItem _traySpeakStopMenuItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem _trayExitMenuItem = new ToolStripMenuItem();
         private readonly FiverrAssistantService _fiverrAssistant;
+        private readonly Panel _callModeBar = new Panel();
+        private readonly Panel _messageModeBar = new Panel();
+        private readonly Panel _voiceModeBar = new Panel();
+        private readonly Label _callModeStateLabel = new Label();
+        private readonly Label _messageModeStateLabel = new Label();
+        private readonly Label _voiceModeStateLabel = new Label();
+        private readonly Button _callModeToggleButton = new Button();
+        private readonly Button _messageModeToggleButton = new Button();
+        private readonly Button _voiceModeToggleButton = new Button();
 
         private readonly CheckBox _autoAnswerCheckBox = new CheckBox();
         private readonly CheckBox _manualTalkCheckBox = new CheckBox();
@@ -88,7 +97,7 @@ namespace DeskCallAssistant
             Text = "Desk Call Assistant";
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(1180, 1100);
-            ClientSize = new Size(1180, 1360);
+            ClientSize = new Size(1180, 1480);
             KeyPreview = true;
 
             InitializeLayout();
@@ -101,6 +110,7 @@ namespace DeskCallAssistant
             UpdateComputeStatus();
             UpdateLearningSuggestions();
             _fiverrStatusTextBox.Text = BuildFiverrStatus();
+            UpdateActivityDashboard();
 
             _scanTimer.Tick += ScanTimerOnTick;
             _replyTimer.Tick += ReplyTimerOnTick;
@@ -154,8 +164,9 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
                 ColumnCount = 1,
-                RowCount = 7
+                RowCount = 8
             };
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
@@ -165,13 +176,138 @@ namespace DeskCallAssistant
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             Controls.Add(root);
 
-            root.Controls.Add(BuildAutomationPanel(), 0, 0);
-            root.Controls.Add(BuildComputePanel(), 0, 1);
-            root.Controls.Add(BuildSpeechPanel(), 0, 2);
-            root.Controls.Add(BuildReplyAssistantPanel(), 0, 3);
-            root.Controls.Add(BuildFiverrAssistantPanel(), 0, 4);
-            root.Controls.Add(BuildLogPanel(), 0, 5);
-            root.Controls.Add(BuildStatusPanel(), 0, 6);
+            root.Controls.Add(BuildLiveDashboard(), 0, 0);
+            root.Controls.Add(BuildAutomationPanel(), 0, 1);
+            root.Controls.Add(BuildComputePanel(), 0, 2);
+            root.Controls.Add(BuildSpeechPanel(), 0, 3);
+            root.Controls.Add(BuildReplyAssistantPanel(), 0, 4);
+            root.Controls.Add(BuildFiverrAssistantPanel(), 0, 5);
+            root.Controls.Add(BuildLogPanel(), 0, 6);
+            root.Controls.Add(BuildStatusPanel(), 0, 7);
+        }
+
+        private Control BuildLiveDashboard()
+        {
+            var group = new GroupBox
+            {
+                Text = "Live controls",
+                Dock = DockStyle.Fill
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                ColumnCount = 3,
+                RowCount = 1
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34f));
+
+            layout.Controls.Add(BuildModeCard(
+                _callModeBar,
+                "\uE717",
+                "Calls",
+                _callModeStateLabel,
+                _callModeToggleButton,
+                (_, __) => _autoAnswerCheckBox.Checked = !_autoAnswerCheckBox.Checked), 0, 0);
+
+            layout.Controls.Add(BuildModeCard(
+                _messageModeBar,
+                "\uE8BD",
+                "Messages",
+                _messageModeStateLabel,
+                _messageModeToggleButton,
+                (_, __) => _replyAssistantCheckBox.Checked = !_replyAssistantCheckBox.Checked), 1, 0);
+
+            layout.Controls.Add(BuildModeCard(
+                _voiceModeBar,
+                "\uE720",
+                "Voice",
+                _voiceModeStateLabel,
+                _voiceModeToggleButton,
+                (_, __) =>
+                {
+                    if (_manualTalkCheckBox.Checked)
+                    {
+                        _manualTalkCheckBox.Checked = false;
+                    }
+                    else
+                    {
+                        ToggleSpeechHotkey();
+                    }
+                }), 2, 0);
+
+            group.Controls.Add(layout);
+            return group;
+        }
+
+        private static Control BuildModeCard(
+            Panel statusBar,
+            string iconText,
+            string title,
+            Label stateLabel,
+            Button actionButton,
+            EventHandler action)
+        {
+            var card = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(8),
+                BackColor = Color.White,
+                ColumnCount = 1,
+                RowCount = 4
+            };
+            card.RowStyles.Add(new RowStyle(SizeType.Absolute, 8f));
+            card.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f));
+            card.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            card.RowStyles.Add(new RowStyle(SizeType.Absolute, 38f));
+
+            statusBar.Dock = DockStyle.Fill;
+            statusBar.BackColor = Color.Silver;
+
+            var iconLabel = new Label
+            {
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe MDL2 Assets", 24f, FontStyle.Regular),
+                Text = iconText,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            var textPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 2,
+                Padding = new Padding(6, 0, 6, 0)
+            };
+            textPanel.RowStyles.Add(new RowStyle(SizeType.Absolute, 28f));
+            textPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            textPanel.Controls.Add(new Label
+            {
+                Text = title,
+                Dock = DockStyle.Fill,
+                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter
+            }, 0, 0);
+
+            stateLabel.Dock = DockStyle.Fill;
+            stateLabel.Font = new Font("Segoe UI", 10f, FontStyle.Regular);
+            stateLabel.TextAlign = ContentAlignment.TopCenter;
+            textPanel.Controls.Add(stateLabel, 0, 1);
+
+            actionButton.Dock = DockStyle.Fill;
+            actionButton.FlatStyle = FlatStyle.Flat;
+            actionButton.FlatAppearance.BorderSize = 0;
+            actionButton.BackColor = Color.FromArgb(235, 238, 245);
+            actionButton.Click += action;
+
+            card.Controls.Add(statusBar, 0, 0);
+            card.Controls.Add(iconLabel, 0, 1);
+            card.Controls.Add(textPanel, 0, 2);
+            card.Controls.Add(actionButton, 0, 3);
+            return card;
         }
 
         private void InitializeTrayIcon()
@@ -1000,6 +1136,67 @@ namespace DeskCallAssistant
             _fiverrStatusTextBox.Text = BuildFiverrStatus();
         }
 
+        private void UpdateActivityDashboard()
+        {
+            UpdateModeCard(
+                _callModeBar,
+                _callModeStateLabel,
+                _callModeToggleButton,
+                _autoAnswerCheckBox.Checked,
+                _autoAnswerCheckBox.Checked ? "Watching" : "Idle",
+                _autoAnswerCheckBox.Checked ? "Stop" : "Start",
+                Color.FromArgb(43, 138, 62));
+
+            UpdateModeCard(
+                _messageModeBar,
+                _messageModeStateLabel,
+                _messageModeToggleButton,
+                _replyAssistantCheckBox.Checked,
+                _replyAssistantCheckBox.Checked ? "Checking chats" : "Idle",
+                _replyAssistantCheckBox.Checked ? "Stop" : "Start",
+                Color.FromArgb(30, 102, 245));
+
+            var voiceActive = _speech.IsSpeaking && !_manualTalkCheckBox.Checked;
+            var voiceStatus = _manualTalkCheckBox.Checked
+                ? "Manual mic"
+                : (voiceActive ? "Speaking" : "Ready");
+            var voiceAction = _manualTalkCheckBox.Checked
+                ? "Use bot"
+                : (voiceActive ? "Stop" : "Speak");
+            var voiceColor = _manualTalkCheckBox.Checked
+                ? Color.FromArgb(230, 119, 0)
+                : Color.FromArgb(112, 72, 232);
+
+            UpdateModeCard(
+                _voiceModeBar,
+                _voiceModeStateLabel,
+                _voiceModeToggleButton,
+                true,
+                voiceStatus,
+                voiceAction,
+                voiceColor);
+        }
+
+        private static void UpdateModeCard(
+            Panel statusBar,
+            Label stateLabel,
+            Button actionButton,
+            bool active,
+            string stateText,
+            string actionText,
+            Color activeColor)
+        {
+            statusBar.BackColor = active ? activeColor : Color.Silver;
+            stateLabel.Text = stateText;
+            actionButton.Text = actionText;
+            actionButton.BackColor = active
+                ? Color.FromArgb(
+                    System.Math.Min(activeColor.R + 170, 255),
+                    System.Math.Min(activeColor.G + 170, 255),
+                    System.Math.Min(activeColor.B + 170, 255))
+                : Color.FromArgb(235, 238, 245);
+        }
+
         private string BuildFiverrStatus()
         {
             return string.Format(
@@ -1035,6 +1232,8 @@ namespace DeskCallAssistant
             {
                 SetStatus("Auto-answer is paused.");
             }
+
+            UpdateActivityDashboard();
         }
 
         private void UpdateReplyTimerState()
@@ -1052,6 +1251,8 @@ namespace DeskCallAssistant
                     OpenFiverrInbox();
                 }
             }
+
+            UpdateActivityDashboard();
         }
 
         private void MainFormOnKeyDown(object sender, KeyEventArgs e)
@@ -1076,6 +1277,7 @@ namespace DeskCallAssistant
             {
                 Log("Manual talk takeover is active, so the speech hotkey will not speak.");
                 SetStatus("Disable Manual talk takeover to use the bot voice.");
+                UpdateActivityDashboard();
                 return;
             }
 
@@ -1084,6 +1286,7 @@ namespace DeskCallAssistant
                 _speech.Stop();
                 Log("Speech stopped with F9.");
                 SetStatus("Speech stopped.");
+                UpdateActivityDashboard();
             }
             else
             {
@@ -1113,6 +1316,8 @@ namespace DeskCallAssistant
                 Log("Manual talk takeover disabled. Bot voice is available again.");
                 SetStatus("Bot voice controls are available.");
             }
+
+            UpdateActivityDashboard();
         }
 
         private void ScanTimerOnTick(object sender, EventArgs e)
@@ -1212,11 +1417,13 @@ namespace DeskCallAssistant
                 UpdateLearningSuggestions();
                 Log("Speaking typed message.");
                 SetStatus("Speaking through the default output device.");
+                UpdateActivityDashboard();
             }
             catch (Exception ex)
             {
                 Log("Speech error: " + ex.Message);
                 SetStatus("Speech failed.");
+                UpdateActivityDashboard();
             }
         }
 
