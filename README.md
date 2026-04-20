@@ -15,6 +15,7 @@ This is a Windows 10 desktop prototype for:
 - letting you type a message and speak it out loud with Windows text-to-speech
 - storing learned phrase suggestions locally on the same PC without using internet learning
 - detecting supported chat windows and preparing local reply suggestions for WhatsApp, Telegram, Messenger, and Facebook messaging surfaces
+- providing a Fiverr inbox helper that reads an already-open inbox page, generates local reply drafts, and stores Fiverr memory on an external non-`C:` drive when one has at least 200 GB free
 
 ## Important limits
 
@@ -25,6 +26,7 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 - Message reply automation is best-effort desktop UI automation. It depends on what accessibility information the target app or browser exposes on your machine.
 - Speaking into the call is not the same as injecting audio directly into the app's microphone stream.
 - The app is hard-coded for local-only learning. It does not fetch training data from the internet or publish learned phrases online.
+- The Fiverr helper intentionally does not randomize refresh behavior, evade platform detection, send Fiverr replies automatically, or store credentials.
 - For reliable in-call speech output, route your default speaker output into a virtual microphone using tools like VB-CABLE or VoiceMeeter, then set that virtual device as the microphone for Messenger or WhatsApp.
 
 ## Messaging reply assistant
@@ -33,6 +35,14 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 - Reply languages: Bengali, English, Japanese, and Banglish.
 - Learning mode: the app learns from incoming-message and reply pairs that you save from now on.
 - Reply mode: the app can detect a message, generate a local suggestion, draft it into the chat composer, or auto-send it if you enable that option.
+
+## Fiverr helper
+
+- Official inbox URL: `https://www.fiverr.com/inbox`
+- Safe workflow: you open the inbox page yourself in your browser, then the app reads visible message content and drafts a reply for your review.
+- Memory storage rule: Fiverr memory is stored only on a non-`C:` drive, and only if that drive has at least 200 GB free.
+- Credential handling: no Fiverr credentials, cookies, passwords, or browser tokens are written into the source code or helper storage.
+- Automation boundary: the helper does not implement stealth refresh logic or automatic Fiverr sending.
 
 ## Verified Messenger web note
 
@@ -75,6 +85,7 @@ DeskCallAssistant\bin\Release\
 6. Use `Remember` to save phrases locally and reuse them from the suggestion list.
 7. Press `F8` or enable `Manual talk takeover` whenever you want to speak yourself instead of the bot.
 8. In the `Message reply assistant` panel, select the platform and language, detect a chat message, teach the app an incoming-message and reply pair, then generate, draft, or send a local reply.
+9. In the `Fiverr helper` panel, open `https://www.fiverr.com/inbox` yourself, detect the visible message, generate a local draft, optionally learn the pair, and review the drafted text before sending manually.
 
 ## Sensible next upgrades
 

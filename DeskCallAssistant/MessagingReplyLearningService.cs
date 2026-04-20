@@ -37,6 +37,22 @@ namespace DeskCallAssistant
             _storagePath = Path.Combine(root, "ReplyPatterns.tsv");
         }
 
+        public MessagingReplyLearningService(string storagePath)
+        {
+            if (string.IsNullOrWhiteSpace(storagePath))
+            {
+                throw new ArgumentException("storagePath");
+            }
+
+            var directory = Path.GetDirectoryName(storagePath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            _storagePath = storagePath;
+        }
+
         public string StoragePath
         {
             get { return _storagePath; }

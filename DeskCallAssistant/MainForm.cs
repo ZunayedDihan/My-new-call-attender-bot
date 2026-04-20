@@ -16,9 +16,11 @@ namespace DeskCallAssistant
         private readonly LocalLearningService _learning = new LocalLearningService();
         private readonly MessagingAutomationService _messagingAutomation = new MessagingAutomationService();
         private readonly MessagingReplyLearningService _replyLearning = new MessagingReplyLearningService();
+        private readonly StorageLocationService _storageLocations = new StorageLocationService();
         private readonly SpeechService _speech = new SpeechService();
         private readonly Timer _scanTimer = new Timer();
         private readonly Timer _replyTimer = new Timer();
+        private readonly FiverrAssistantService _fiverrAssistant;
 
         private readonly CheckBox _autoAnswerCheckBox = new CheckBox();
         private readonly CheckBox _manualTalkCheckBox = new CheckBox();
@@ -33,9 +35,13 @@ namespace DeskCallAssistant
         private readonly TextBox _speechTextBox = new TextBox();
         private readonly TextBox _incomingMessageTextBox = new TextBox();
         private readonly TextBox _generatedReplyTextBox = new TextBox();
+        private readonly TextBox _fiverrStatusTextBox = new TextBox();
+        private readonly TextBox _fiverrIncomingMessageTextBox = new TextBox();
+        private readonly TextBox _fiverrGeneratedReplyTextBox = new TextBox();
         private readonly ComboBox _voicesComboBox = new ComboBox();
         private readonly ComboBox _replyPlatformComboBox = new ComboBox();
         private readonly ComboBox _replyLanguageComboBox = new ComboBox();
+        private readonly ComboBox _fiverrLanguageComboBox = new ComboBox();
         private readonly TrackBar _rateTrackBar = new TrackBar();
         private readonly TrackBar _volumeTrackBar = new TrackBar();
         private readonly TextBox _logTextBox = new TextBox();
@@ -45,6 +51,10 @@ namespace DeskCallAssistant
         private readonly Button _speakButton = new Button();
         private readonly Button _stopSpeechButton = new Button();
         private readonly Button _detectMessageButton = new Button();
+        private readonly Button _detectFiverrMessageButton = new Button();
+        private readonly Button _generateFiverrReplyButton = new Button();
+        private readonly Button _learnFiverrPairButton = new Button();
+        private readonly Button _draftFiverrReplyButton = new Button();
         private readonly Button _generateReplyButton = new Button();
         private readonly Button _learnReplyPatternButton = new Button();
         private readonly Button _draftReplyButton = new Button();
@@ -57,16 +67,19 @@ namespace DeskCallAssistant
 
         public MainForm()
         {
+            _fiverrAssistant = new FiverrAssistantService(_messagingAutomation, _storageLocations);
+
             Text = "Desk Call Assistant";
             StartPosition = FormStartPosition.CenterScreen;
             MinimumSize = new Size(1100, 1020);
-            ClientSize = new Size(1100, 1020);
+            ClientSize = new Size(1100, 1260);
             KeyPreview = true;
 
             InitializeLayout();
             LoadVoices();
             LoadMessagingPlatforms();
             LoadReplyLanguages();
+            LoadFiverrLanguages();
             UpdateComputeStatus();
             UpdateLearningSuggestions();
 
@@ -94,11 +107,12 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(12),
                 ColumnCount = 1,
-                RowCount = 6
+                RowCount = 7
             };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 320f));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
@@ -108,8 +122,9 @@ namespace DeskCallAssistant
             root.Controls.Add(BuildComputePanel(), 0, 1);
             root.Controls.Add(BuildSpeechPanel(), 0, 2);
             root.Controls.Add(BuildReplyAssistantPanel(), 0, 3);
-            root.Controls.Add(BuildLogPanel(), 0, 4);
-            root.Controls.Add(BuildStatusPanel(), 0, 5);
+            root.Controls.Add(BuildFiverrAssistantPanel(), 0, 4);
+            root.Controls.Add(BuildLogPanel(), 0, 5);
+            root.Controls.Add(BuildStatusPanel(), 0, 6);
         }
 
         private Control BuildAutomationPanel()
@@ -526,6 +541,101 @@ namespace DeskCallAssistant
             return group;
         }
 
+        private Control BuildFiverrAssistantPanel()
+        {
+            var group = new GroupBox
+            {
+                Text = "Fiverr helper",
+                Dock = DockStyle.Fill
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                ColumnCount = 4,
+                RowCount = 5
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 60f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
+            _fiverrStatusTextBox.Multiline = true;
+            _fiverrStatusTextBox.ReadOnly = true;
+            _fiverrStatusTextBox.ScrollBars = ScrollBars.Vertical;
+            _fiverrStatusTextBox.Dock = DockStyle.Fill;
+            _fiverrStatusTextBox.BackColor = Color.White;
+            _fiverrStatusTextBox.Text = BuildFiverrStatus();
+
+            _fiverrIncomingMessageTextBox.Multiline = true;
+            _fiverrIncomingMessageTextBox.ScrollBars = ScrollBars.Vertical;
+            _fiverrIncomingMessageTextBox.Dock = DockStyle.Fill;
+
+            _fiverrGeneratedReplyTextBox.Multiline = true;
+            _fiverrGeneratedReplyTextBox.ScrollBars = ScrollBars.Vertical;
+            _fiverrGeneratedReplyTextBox.Dock = DockStyle.Fill;
+
+            _fiverrLanguageComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _fiverrLanguageComboBox.Dock = DockStyle.Fill;
+
+            _detectFiverrMessageButton.Text = "Read open inbox";
+            _detectFiverrMessageButton.AutoSize = true;
+            _detectFiverrMessageButton.Click += (_, __) => DetectFiverrMessage();
+
+            _generateFiverrReplyButton.Text = "Generate draft";
+            _generateFiverrReplyButton.AutoSize = true;
+            _generateFiverrReplyButton.Click += (_, __) => GenerateFiverrReply();
+
+            _learnFiverrPairButton.Text = "Learn pair";
+            _learnFiverrPairButton.AutoSize = true;
+            _learnFiverrPairButton.Click += (_, __) => LearnFiverrPair();
+
+            _draftFiverrReplyButton.Text = "Draft to inbox";
+            _draftFiverrReplyButton.AutoSize = true;
+            _draftFiverrReplyButton.Click += (_, __) => DraftFiverrReply();
+
+            var header = new Label
+            {
+                Text = "This helper does not randomize refreshes, evade platform detection, send replies automatically, or store credentials. Open https://www.fiverr.com/inbox yourself, then use this panel to read and draft.",
+                AutoSize = true,
+                Dock = DockStyle.Fill
+            };
+
+            layout.Controls.Add(header, 0, 0);
+            layout.SetColumnSpan(header, 4);
+            layout.Controls.Add(new Label { Text = "Storage and safety", AutoSize = true, Dock = DockStyle.Fill }, 0, 1);
+            layout.Controls.Add(_fiverrStatusTextBox, 1, 1);
+            layout.SetColumnSpan(_fiverrStatusTextBox, 3);
+            layout.Controls.Add(new Label { Text = "Language", AutoSize = true, Dock = DockStyle.Fill }, 0, 2);
+            layout.Controls.Add(_fiverrLanguageComboBox, 1, 2);
+            layout.Controls.Add(new Label { Text = "Latest Fiverr message", AutoSize = true, Dock = DockStyle.Fill }, 2, 2);
+            layout.Controls.Add(_fiverrIncomingMessageTextBox, 3, 2);
+            layout.Controls.Add(new Label { Text = "Draft reply", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
+            layout.Controls.Add(_fiverrGeneratedReplyTextBox, 1, 3);
+            layout.SetColumnSpan(_fiverrGeneratedReplyTextBox, 3);
+
+            var buttonPanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                FlowDirection = FlowDirection.LeftToRight
+            };
+            buttonPanel.Controls.Add(_detectFiverrMessageButton);
+            buttonPanel.Controls.Add(_generateFiverrReplyButton);
+            buttonPanel.Controls.Add(_learnFiverrPairButton);
+            buttonPanel.Controls.Add(_draftFiverrReplyButton);
+            layout.Controls.Add(buttonPanel, 0, 4);
+            layout.SetColumnSpan(buttonPanel, 4);
+
+            group.Controls.Add(layout);
+            return group;
+        }
+
         private Control BuildLogPanel()
         {
             var group = new GroupBox
@@ -587,6 +697,15 @@ namespace DeskCallAssistant
             _replyLanguageComboBox.SelectedIndex = 0;
         }
 
+        private void LoadFiverrLanguages()
+        {
+            _fiverrLanguageComboBox.Items.Add("Bengali");
+            _fiverrLanguageComboBox.Items.Add("English");
+            _fiverrLanguageComboBox.Items.Add("Japanese");
+            _fiverrLanguageComboBox.Items.Add("Banglish");
+            _fiverrLanguageComboBox.SelectedIndex = 0;
+        }
+
         private void UpdateComputeStatus()
         {
             var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
@@ -597,6 +716,14 @@ namespace DeskCallAssistant
                 AppPolicy.BuildPrivacySummary(_learning.StoragePath),
                 _learning.StoragePath,
                 _replyLearning.StoragePath);
+        }
+
+        private string BuildFiverrStatus()
+        {
+            return string.Format(
+                "{0}{1}Official inbox URL: https://www.fiverr.com/inbox{1}Credentials are not written into source code or helper storage.",
+                _fiverrAssistant.StorageStatus,
+                Environment.NewLine);
         }
 
         private void UpdateTimerState()
@@ -796,6 +923,61 @@ namespace DeskCallAssistant
             {
                 _suggestionsListBox.EndUpdate();
             }
+        }
+
+        private void DetectFiverrMessage()
+        {
+            var snapshot = _fiverrAssistant.DetectInboxConversation();
+            if (!snapshot.Found)
+            {
+                Log(snapshot.Message);
+                SetStatus("Fiverr inbox was not detected.");
+                return;
+            }
+
+            _fiverrIncomingMessageTextBox.Text = snapshot.LatestIncomingMessage;
+            _fiverrStatusTextBox.Text = BuildFiverrStatus();
+            Log("Read the visible Fiverr inbox content from the open browser window.");
+            SetStatus("Fiverr inbox content detected.");
+        }
+
+        private void GenerateFiverrReply()
+        {
+            var language = _fiverrLanguageComboBox.SelectedItem as string;
+            var result = _fiverrAssistant.SuggestReply(_fiverrIncomingMessageTextBox.Text, language);
+            _fiverrGeneratedReplyTextBox.Text = result.ReplyText;
+            _fiverrStatusTextBox.Text = BuildFiverrStatus();
+            Log(result.UsedFallback
+                ? "Generated a fallback Fiverr draft because no learned Fiverr pattern matched yet."
+                : "Generated a Fiverr draft from locally learned Fiverr message patterns.");
+            SetStatus("Fiverr draft updated.");
+        }
+
+        private void LearnFiverrPair()
+        {
+            var language = _fiverrLanguageComboBox.SelectedItem as string;
+            if (string.IsNullOrWhiteSpace(_fiverrIncomingMessageTextBox.Text) ||
+                string.IsNullOrWhiteSpace(_fiverrGeneratedReplyTextBox.Text) ||
+                string.IsNullOrWhiteSpace(language))
+            {
+                Log("Provide a Fiverr message, draft reply, and language before learning.");
+                return;
+            }
+
+            _fiverrAssistant.RememberPair(
+                _fiverrIncomingMessageTextBox.Text,
+                _fiverrGeneratedReplyTextBox.Text,
+                language);
+            _fiverrStatusTextBox.Text = BuildFiverrStatus();
+            Log("Saved the Fiverr reply pattern into external local storage.");
+            SetStatus("Fiverr memory updated.");
+        }
+
+        private void DraftFiverrReply()
+        {
+            var result = _fiverrAssistant.DraftReply(_fiverrGeneratedReplyTextBox.Text);
+            Log(result.Message);
+            SetStatus(result.Message);
         }
 
         private void DetectCurrentMessage(bool manualRun)
