@@ -59,6 +59,11 @@ namespace DeskCallAssistant
 
         public ConversationSnapshot DetectConversation(MessagingPlatformDefinition platform)
         {
+            return DetectConversation(platform, true);
+        }
+
+        public ConversationSnapshot DetectConversation(MessagingPlatformDefinition platform, bool autoSelectChat)
+        {
             if (platform == null)
             {
                 return new ConversationSnapshot
@@ -79,7 +84,7 @@ namespace DeskCallAssistant
                     continue;
                 }
 
-                var snapshot = BuildPlatformSnapshot(platform, window);
+                var snapshot = BuildPlatformSnapshot(platform, window, autoSelectChat);
                 if (snapshot.Found)
                 {
                     return snapshot;
@@ -103,7 +108,12 @@ namespace DeskCallAssistant
 
         public ConversationSnapshot DraftReply(MessagingPlatformDefinition platform, string replyText)
         {
-            var snapshot = DetectConversation(platform);
+            return DraftReply(platform, replyText, true);
+        }
+
+        public ConversationSnapshot DraftReply(MessagingPlatformDefinition platform, string replyText, bool autoSelectChat)
+        {
+            var snapshot = DetectConversation(platform, autoSelectChat);
             if (!snapshot.Found && IsWhatsAppPlatform(platform) && HasRecentWhatsAppDirectActivation())
             {
                 var activeWhatsAppWindow = FindBestWindow(platform);
@@ -131,7 +141,7 @@ namespace DeskCallAssistant
                 return snapshot;
             }
 
-            var composer = FindComposer(window);
+            var composer = FindComposer(window, platform);
             if (composer == null)
             {
                 snapshot.Message = "The chat composer could not be found.";
@@ -152,7 +162,12 @@ namespace DeskCallAssistant
 
         public ConversationSnapshot SendReply(MessagingPlatformDefinition platform, string replyText)
         {
-            var drafted = DraftReply(platform, replyText);
+            return SendReply(platform, replyText, true);
+        }
+
+        public ConversationSnapshot SendReply(MessagingPlatformDefinition platform, string replyText, bool autoSelectChat)
+        {
+            var drafted = DraftReply(platform, replyText, autoSelectChat);
             if (!drafted.Found)
             {
                 return drafted;
@@ -166,7 +181,7 @@ namespace DeskCallAssistant
                 return drafted;
             }
 
-            var sendButton = FindSendButton(window);
+            var sendButton = FindSendButton(window, platform);
             if (sendButton != null && TryInvoke(sendButton))
             {
                 drafted.Message = "Sent the drafted reply.";
@@ -188,21 +203,28 @@ namespace DeskCallAssistant
             }
         }
 
-        private ConversationSnapshot BuildPlatformSnapshot(MessagingPlatformDefinition platform, AutomationElement window)
+        private ConversationSnapshot BuildPlatformSnapshot(
+            MessagingPlatformDefinition platform,
+            AutomationElement window,
+            bool autoSelectChat)
         {
             if (IsWhatsAppPlatform(platform))
             {
-                return BuildWhatsAppConversationSnapshot(platform, window);
+                return BuildWhatsAppConversationSnapshot(platform, window, autoSelectChat);
             }
 
             if (IsMessengerFamilyPlatform(platform))
             {
-                return BuildBrowserConversationSnapshot(platform, window, "Messenger or Facebook chat detected.");
+                return BuildMessengerConversationSnapshot(platform, window, autoSelectChat);
             }
 
             if (IsTelegramPlatform(platform))
             {
-                return BuildBrowserConversationSnapshot(platform, window, "Telegram or Unigram chat detected.");
+                return BuildBrowserConversationSnapshot(
+                    platform,
+                    window,
+                    autoSelectChat,
+                    "Telegram or Unigram chat detected.");
             }
 
             return BuildSnapshot(platform, window);
@@ -225,9 +247,12 @@ namespace DeskCallAssistant
 
         private ConversationSnapshot BuildWhatsAppConversationSnapshot(
             MessagingPlatformDefinition platform,
-            AutomationElement window)
+            AutomationElement window,
+            bool autoSelectChat)
         {
-            var unreadSnapshot = BuildWhatsAppUnreadSnapshot(platform, window);
+            var unreadSnapshot = autoSelectChat
+                ? BuildWhatsAppUnreadSnapshot(platform, window)
+                : BuildNotAutoSelectingSnapshot(platform, window, "WhatsApp auto-select is disabled, so the currently open chat is used only.");
             if (unreadSnapshot.Found)
             {
                 return unreadSnapshot;
@@ -317,17 +342,22 @@ namespace DeskCallAssistant
 
         private ConversationSnapshot BuildSnapshot(MessagingPlatformDefinition platform, AutomationElement window)
         {
-            var composer = FindComposer(window);
+            var composer = FindComposer(window, platform);
             var candidates = FindMessageCandidates(platform, window);
             var latestMessage = candidates.LastOrDefault();
+            var processName = SafeProcessName(window);
 
             return new ConversationSnapshot
             {
                 Found = !string.IsNullOrWhiteSpace(latestMessage) || composer != null,
                 PlatformId = platform.Id,
                 WindowTitle = SafeName(window),
+                ProcessName = processName,
                 LatestIncomingMessage = latestMessage ?? string.Empty,
                 ComposerFound = composer != null,
+                DetectionMode = "active-window-scan",
+                MatchedElementName = composer != null ? SafeName(composer) : string.Empty,
+                DiagnosticInfo = BuildSnapshotDiagnostics(platform, window, candidates.Count, composer != null),
                 Message = composer != null
                     ? "Chat window detected."
                     : "Detected a matching window but no chat composer was found."
@@ -337,8 +367,17 @@ namespace DeskCallAssistant
         private ConversationSnapshot BuildBrowserConversationSnapshot(
             MessagingPlatformDefinition platform,
             AutomationElement window,
+            bool autoSelectChat,
             string successMessage)
         {
+            if (!autoSelectChat)
+            {
+                return BuildNotAutoSelectingSnapshot(
+                    platform,
+                    window,
+                    "Chat auto-selection is disabled, so the currently open chat is used only.");
+            }
+
             var snapshot = BuildSnapshot(platform, window);
             if (snapshot.Found && !string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
             {
@@ -352,6 +391,44 @@ namespace DeskCallAssistant
                 snapshot.Message = "The chat is open, but no readable incoming message was detected yet.";
             }
 
+            return snapshot;
+        }
+
+        private ConversationSnapshot BuildMessengerConversationSnapshot(
+            MessagingPlatformDefinition platform,
+            AutomationElement window,
+            bool autoSelectChat)
+        {
+            var snapshot = BuildBrowserConversationSnapshot(
+                platform,
+                window,
+                autoSelectChat,
+                "Messenger or Facebook chat detected.");
+            if (snapshot.Found)
+            {
+                return snapshot;
+            }
+
+            if (ContainsBlockedOverlay(window))
+            {
+                snapshot.Found = false;
+                snapshot.DetectionMode = "share-overlay-blocked";
+                snapshot.DiagnosticInfo = AppendDiagnostic(snapshot.DiagnosticInfo, "share overlay detected");
+                snapshot.Message = "Facebook share dialog was detected and ignored. Switch back to the chat popup or disable auto-select.";
+            }
+
+            return snapshot;
+        }
+
+        private ConversationSnapshot BuildNotAutoSelectingSnapshot(
+            MessagingPlatformDefinition platform,
+            AutomationElement window,
+            string message)
+        {
+            var snapshot = BuildSnapshot(platform, window);
+            snapshot.Message = message;
+            snapshot.DetectionMode = "manual-current-chat";
+            snapshot.DiagnosticInfo = AppendDiagnostic(snapshot.DiagnosticInfo, "autoSelect=false");
             return snapshot;
         }
 
@@ -374,6 +451,11 @@ namespace DeskCallAssistant
 
             foreach (AutomationElement item in texts)
             {
+                if (IsInsideBlockedOverlay(item))
+                {
+                    continue;
+                }
+
                 foreach (var token in SplitTokens(SafeName(item)))
                 {
                     if (!LooksLikeMessageCandidate(token, platform, windowTitle))
@@ -444,7 +526,13 @@ namespace DeskCallAssistant
                 "choose sticker",
                 "attach a file",
                 "add reaction",
-                "message actions"))
+                "message actions",
+                "share now",
+                "share to",
+                "send in messenger",
+                "what's on your mind",
+                "feed",
+                "only me"))
             {
                 return false;
             }
@@ -611,7 +699,7 @@ namespace DeskCallAssistant
             }
         }
 
-        private static AutomationElement FindComposer(AutomationElement window)
+        private static AutomationElement FindComposer(AutomationElement window, MessagingPlatformDefinition platform)
         {
             var editors = window.FindAll(
                 TreeScope.Descendants,
@@ -624,8 +712,19 @@ namespace DeskCallAssistant
 
             foreach (AutomationElement editor in editors)
             {
+                if (IsInsideBlockedOverlay(editor))
+                {
+                    continue;
+                }
+
                 var name = SafeName(editor);
                 if (name.IndexOf("search", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                if (IsMessengerFamilyPlatform(platform) &&
+                    ContainsAny(name, "share", "post", "what's on your mind"))
                 {
                     continue;
                 }
@@ -640,7 +739,7 @@ namespace DeskCallAssistant
             return preferred ?? fallback;
         }
 
-        private static AutomationElement FindSendButton(AutomationElement window)
+        private static AutomationElement FindSendButton(AutomationElement window, MessagingPlatformDefinition platform)
         {
             var controls = window.FindAll(
                 TreeScope.Descendants,
@@ -648,7 +747,18 @@ namespace DeskCallAssistant
 
             foreach (AutomationElement control in controls)
             {
+                if (IsInsideBlockedOverlay(control))
+                {
+                    continue;
+                }
+
                 var name = SafeName(control);
+                if (IsMessengerFamilyPlatform(platform) &&
+                    ContainsAny(name, "share now", "share", "send in messenger"))
+                {
+                    continue;
+                }
+
                 if (name.IndexOf("send", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     return control;
@@ -904,6 +1014,89 @@ namespace DeskCallAssistant
         {
             return !string.IsNullOrWhiteSpace(value) &&
                    value.Any(ch => char.IsLetterOrDigit(ch));
+        }
+
+        private static string BuildSnapshotDiagnostics(
+            MessagingPlatformDefinition platform,
+            AutomationElement window,
+            int candidateCount,
+            bool composerFound)
+        {
+            return string.Format(
+                "platform={0}; candidates={1}; composer={2}; blockedOverlay={3}",
+                platform != null ? platform.Id : "unknown",
+                candidateCount,
+                composerFound ? "yes" : "no",
+                ContainsBlockedOverlay(window) ? "yes" : "no");
+        }
+
+        private static string AppendDiagnostic(string existing, string extra)
+        {
+            if (string.IsNullOrWhiteSpace(existing))
+            {
+                return extra ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(extra))
+            {
+                return existing;
+            }
+
+            return existing + "; " + extra;
+        }
+
+        private static bool ContainsBlockedOverlay(AutomationElement window)
+        {
+            if (window == null)
+            {
+                return false;
+            }
+
+            foreach (var token in GetElementTokens(window))
+            {
+                if (ContainsAny(token, "share now", "share to", "send in messenger", "what's on your mind"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsInsideBlockedOverlay(AutomationElement element)
+        {
+            try
+            {
+                var current = element;
+                for (var depth = 0; current != null && depth < 8; depth++)
+                {
+                    var name = SafeName(current);
+                    if (ContainsAny(name, "share now", "share to", "send in messenger", "what's on your mind"))
+                    {
+                        return true;
+                    }
+
+                    current = TreeWalker.ControlViewWalker.GetParent(current);
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static string SafeProcessName(AutomationElement window)
+        {
+            try
+            {
+                var process = Process.GetProcessById(window.Current.ProcessId);
+                return process.ProcessName ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static string SafeName(AutomationElement element)

@@ -12,9 +12,17 @@ namespace DeskCallAssistant
 
         public string WindowTitle { get; set; }
 
+        public string ProcessName { get; set; }
+
         public string LatestIncomingMessage { get; set; }
 
         public bool ComposerFound { get; set; }
+
+        public string DetectionMode { get; set; }
+
+        public string MatchedElementName { get; set; }
+
+        public string DiagnosticInfo { get; set; }
 
         public string Message { get; set; }
     }

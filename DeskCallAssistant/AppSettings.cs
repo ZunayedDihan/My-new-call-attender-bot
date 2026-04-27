@@ -9,6 +9,7 @@ namespace DeskCallAssistant
         public AppSettings()
         {
             AutoDetectReplyLanguage = true;
+            AutoSelectDetectedChat = true;
         }
 
         public bool AutoAnswerEnabled { get; set; }
@@ -38,6 +39,8 @@ namespace DeskCallAssistant
         public bool ReplyAssistantEnabled { get; set; }
 
         public bool AutoSendReplyEnabled { get; set; }
+
+        public bool AutoSelectDetectedChat { get; set; }
 
         public bool OpenFiverrOnAssistantStarts { get; set; }
 

@@ -48,10 +48,11 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 - Supported targets: WhatsApp desktop/web, Telegram, Unigram, Messenger app, `messenger.com`, and Facebook messaging surfaces inside `facebook.com`.
 - Reply languages: Bengali, English, Japanese, and Banglish.
 - Language mode: the assistant can auto-detect the incoming message language locally and use the selected dropdown language only as a fallback.
+- Chat targeting mode: you can let the assistant auto-select a detected chat before replying, or turn that off and keep reply drafting limited to the chat you opened yourself.
 - Learning mode: the app learns from incoming-message and reply pairs that you save from now on.
 - Reply mode: the app can detect a message, generate a local suggestion, draft it into the chat composer, or auto-send it if you enable that option.
 - Scan mode: the timer now checks the selected platform first and then falls through the other supported chat platforms so one running assistant can catch WhatsApp, Messenger/Facebook, and Telegram/Unigram messages more reliably.
-- Diagnostics: the activity log can be exported from the app to a local text file to verify what it detected and what actions it took.
+- Diagnostics: the activity log can be exported from the app to a local text file to verify what it detected, which window/process it matched, and what action it took.
 
 ## Fiverr helper
 

@@ -7,7 +7,10 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Threading;
 using System.Windows.Forms;
+using FormsTimer = System.Windows.Forms.Timer;
 
 namespace DeskCallAssistant
 {
@@ -23,9 +26,9 @@ namespace DeskCallAssistant
         private readonly StorageLocationService _storageLocations = new StorageLocationService();
         private readonly StartupRegistrationService _startupRegistration = new StartupRegistrationService();
         private readonly SpeechService _speech = new SpeechService();
-        private readonly Timer _scanTimer = new Timer();
-        private readonly Timer _replyTimer = new Timer();
-        private readonly Timer _settingsSaveTimer = new Timer();
+        private readonly FormsTimer _scanTimer = new FormsTimer();
+        private readonly FormsTimer _replyTimer = new FormsTimer();
+        private readonly FormsTimer _settingsSaveTimer = new FormsTimer();
         private readonly NotifyIcon _trayIcon = new NotifyIcon();
         private readonly ContextMenuStrip _trayMenu = new ContextMenuStrip();
         private readonly ToolStripMenuItem _trayShowMenuItem = new ToolStripMenuItem();
@@ -49,6 +52,7 @@ namespace DeskCallAssistant
         private readonly CheckBox _preferGpuCheckBox = new CheckBox();
         private readonly CheckBox _replyAssistantCheckBox = new CheckBox();
         private readonly CheckBox _autoSendReplyCheckBox = new CheckBox();
+        private readonly CheckBox _autoSelectDetectedChatCheckBox = new CheckBox();
         private readonly CheckBox _autoDetectReplyLanguageCheckBox = new CheckBox();
         private readonly CheckBox _openFiverrWhenReplyAssistantStartsCheckBox = new CheckBox();
         private readonly CheckBox _startWithWindowsCheckBox = new CheckBox();
@@ -93,11 +97,48 @@ namespace DeskCallAssistant
         private readonly Label _statusLabel = new Label();
 
         private bool _forceExitFromTray;
+        private bool _replyAssistantWorkInProgress;
         private bool _scanInProgress;
         private bool _settingsLoaded;
         private bool _trayBalloonShown;
         private string _lastProcessedReplyKey = string.Empty;
         private string _lastDetectedReplyLanguage = "English";
+
+        private sealed class ReplyAssistantWorkItem
+        {
+            public MessagingPlatformDefinition[] Platforms { get; set; }
+
+            public bool AutoSend { get; set; }
+
+            public bool AutoSelectDetectedChat { get; set; }
+
+            public bool AutoDetectLanguage { get; set; }
+
+            public string FallbackLanguage { get; set; }
+
+            public string LastProcessedReplyKey { get; set; }
+        }
+
+        private sealed class ReplyAssistantWorkResult
+        {
+            public bool Found { get; set; }
+
+            public bool AutoSend { get; set; }
+
+            public bool AutoSelectDetectedChat { get; set; }
+
+            public string ReplyKey { get; set; }
+
+            public string DetectedLanguage { get; set; }
+
+            public string SuggestedReply { get; set; }
+
+            public bool UsedFallback { get; set; }
+
+            public MessagingPlatformDefinition Platform { get; set; }
+
+            public ConversationSnapshot Snapshot { get; set; }
+        }
 
         public MainForm()
         {
@@ -110,6 +151,7 @@ namespace DeskCallAssistant
             KeyPreview = true;
 
             InitializeLayout();
+            EnableSmoothUi();
             InitializeTrayIcon();
             LoadVoices();
             LoadMessagingPlatforms();
@@ -205,6 +247,30 @@ namespace DeskCallAssistant
             _rootLayout.Controls.Add(BuildStatusPanel(), 0, 7);
 
             UpdateScrollableLayoutWidth();
+        }
+
+        private void EnableSmoothUi()
+        {
+            SetDoubleBuffered(this);
+            SetDoubleBuffered(_scrollHost);
+            SetDoubleBuffered(_rootLayout);
+            SetDoubleBuffered(_logTextBox);
+        }
+
+        private static void SetDoubleBuffered(Control control)
+        {
+            if (control == null)
+            {
+                return;
+            }
+
+            var property = typeof(Control).GetProperty(
+                "DoubleBuffered",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            if (property != null)
+            {
+                property.SetValue(control, true, null);
+            }
         }
 
         private void UpdateScrollableLayoutWidth()
@@ -752,6 +818,11 @@ namespace DeskCallAssistant
             _autoSendReplyCheckBox.AutoSize = true;
             _autoSendReplyCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
 
+            _autoSelectDetectedChatCheckBox.Text = "Auto-select detected chat";
+            _autoSelectDetectedChatCheckBox.AutoSize = true;
+            _autoSelectDetectedChatCheckBox.Checked = true;
+            _autoSelectDetectedChatCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
+
             _autoDetectReplyLanguageCheckBox.Text = "Auto-detect language";
             _autoDetectReplyLanguageCheckBox.AutoSize = true;
             _autoDetectReplyLanguageCheckBox.Checked = true;
@@ -786,6 +857,7 @@ namespace DeskCallAssistant
                 Padding = new Padding(0, 7, 10, 0)
             });
             topPanel.Controls.Add(_autoSendReplyCheckBox);
+            topPanel.Controls.Add(_autoSelectDetectedChatCheckBox);
             topPanel.Controls.Add(_autoDetectReplyLanguageCheckBox);
             topPanel.Controls.Add(_openFiverrWhenReplyAssistantStartsCheckBox);
 
@@ -1106,6 +1178,7 @@ namespace DeskCallAssistant
 
             _replyAssistantCheckBox.Checked = settings.ReplyAssistantEnabled;
             _autoSendReplyCheckBox.Checked = settings.AutoSendReplyEnabled;
+            _autoSelectDetectedChatCheckBox.Checked = settings.AutoSelectDetectedChat;
             _autoDetectReplyLanguageCheckBox.Checked = settings.AutoDetectReplyLanguage;
             _openFiverrWhenReplyAssistantStartsCheckBox.Checked = settings.OpenFiverrOnAssistantStarts;
             _replyIntervalSeconds.Value = NormalizeDecimal(settings.ReplyIntervalSeconds, _replyIntervalSeconds.Minimum, _replyIntervalSeconds.Maximum, 5);
@@ -1163,6 +1236,7 @@ namespace DeskCallAssistant
                 SpeechText = _speechTextBox.Text,
                 ReplyAssistantEnabled = _replyAssistantCheckBox.Checked,
                 AutoSendReplyEnabled = _autoSendReplyCheckBox.Checked,
+                AutoSelectDetectedChat = _autoSelectDetectedChatCheckBox.Checked,
                 AutoDetectReplyLanguage = _autoDetectReplyLanguageCheckBox.Checked,
                 OpenFiverrOnAssistantStarts = _openFiverrWhenReplyAssistantStartsCheckBox.Checked,
                 ReplyIntervalSeconds = _replyIntervalSeconds.Value,
@@ -1652,15 +1726,12 @@ namespace DeskCallAssistant
             if (TryDetectConversationAcrossPlatforms(out platform, out snapshot))
             {
                 _incomingMessageTextBox.Text = snapshot.LatestIncomingMessage;
-                Log(string.Format(
-                    "Detected chat on {0}: {1}",
-                    platform != null ? platform.DisplayName : "unknown platform",
-                    snapshot.WindowTitle));
+                LogSnapshotDetails("Detected chat", platform, snapshot);
                 SetStatus("Latest message detected.");
             }
             else if (manualRun)
             {
-                Log(snapshot.Message);
+                LogSnapshotDetails("Detection skipped", platform, snapshot);
                 SetStatus("No matching chat window detected.");
             }
         }
@@ -1735,8 +1806,11 @@ namespace DeskCallAssistant
                 return;
             }
 
-            var result = _messagingAutomation.DraftReply(platform, _generatedReplyTextBox.Text);
-            Log(result.Message);
+            var result = _messagingAutomation.DraftReply(
+                platform,
+                _generatedReplyTextBox.Text,
+                _autoSelectDetectedChatCheckBox.Checked);
+            LogSnapshotDetails("Draft reply result", platform, result);
             SetStatus(result.Message);
         }
 
@@ -1751,8 +1825,11 @@ namespace DeskCallAssistant
 
             var language = ResolveReplyLanguage(_incomingMessageTextBox.Text, false);
 
-            var result = _messagingAutomation.SendReply(platform, _generatedReplyTextBox.Text);
-            Log(result.Message);
+            var result = _messagingAutomation.SendReply(
+                platform,
+                _generatedReplyTextBox.Text,
+                _autoSelectDetectedChatCheckBox.Checked);
+            LogSnapshotDetails("Send reply result", platform, result);
             SetStatus(result.Message);
 
             if (result.Found)
@@ -1767,37 +1844,43 @@ namespace DeskCallAssistant
 
         private void ProcessReplyAssistantTick()
         {
-            MessagingPlatformDefinition platform;
-            ConversationSnapshot snapshot;
-            if (!TryDetectConversationAcrossPlatforms(out platform, out snapshot) ||
-                platform == null ||
-                string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
+            if (_replyAssistantWorkInProgress)
             {
                 return;
             }
 
-            var replyKey = string.Format(
-                "{0}|{1}|{2}",
-                platform.Id,
-                ResolveReplyLanguage(snapshot.LatestIncomingMessage, false),
-                snapshot.LatestIncomingMessage.Trim());
-            if (replyKey.Equals(_lastProcessedReplyKey, StringComparison.OrdinalIgnoreCase))
+            var workItem = BuildReplyAssistantWorkItem();
+            if (workItem == null || workItem.Platforms == null || workItem.Platforms.Length == 0)
             {
                 return;
             }
 
-            _incomingMessageTextBox.Text = snapshot.LatestIncomingMessage;
-            GenerateReplyFromCurrentInput(false);
-            _lastProcessedReplyKey = replyKey;
+            _replyAssistantWorkInProgress = true;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var result = ExecuteReplyAssistantWork(workItem);
+                    if (result == null || !result.Found)
+                    {
+                        return;
+                    }
 
-            if (_autoSendReplyCheckBox.Checked)
-            {
-                SendCurrentReply();
-            }
-            else
-            {
-                DraftCurrentReply();
-            }
+                    BeginInvoke((Action)(() => ApplyReplyAssistantWorkResult(result)));
+                }
+                catch (Exception ex)
+                {
+                    BeginInvoke((Action)(() =>
+                    {
+                        Log("Reply assistant background error: " + ex.Message);
+                        SetStatus("Reply assistant encountered an error.");
+                    }));
+                }
+                finally
+                {
+                    _replyAssistantWorkInProgress = false;
+                }
+            });
         }
 
         private bool TryDetectConversationAcrossPlatforms(
@@ -1814,7 +1897,9 @@ namespace DeskCallAssistant
 
             foreach (var platform in GetPreferredReplyPlatforms())
             {
-                var snapshot = _messagingAutomation.DetectConversation(platform);
+                var snapshot = _messagingAutomation.DetectConversation(
+                    platform,
+                    _autoSelectDetectedChatCheckBox.Checked);
                 if (snapshot.Found && !string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
                 {
                     matchedPlatform = platform;
@@ -1860,6 +1945,103 @@ namespace DeskCallAssistant
             }
 
             return ordered.ToArray();
+        }
+
+        private ReplyAssistantWorkItem BuildReplyAssistantWorkItem()
+        {
+            var fallbackLanguage = _replyLanguageComboBox.SelectedItem as string;
+            if (string.IsNullOrWhiteSpace(fallbackLanguage))
+            {
+                fallbackLanguage = "English";
+            }
+
+            return new ReplyAssistantWorkItem
+            {
+                Platforms = GetPreferredReplyPlatforms(),
+                AutoSend = _autoSendReplyCheckBox.Checked,
+                AutoSelectDetectedChat = _autoSelectDetectedChatCheckBox.Checked,
+                AutoDetectLanguage = _autoDetectReplyLanguageCheckBox.Checked,
+                FallbackLanguage = fallbackLanguage,
+                LastProcessedReplyKey = _lastProcessedReplyKey
+            };
+        }
+
+        private ReplyAssistantWorkResult ExecuteReplyAssistantWork(ReplyAssistantWorkItem workItem)
+        {
+            foreach (var platform in workItem.Platforms)
+            {
+                var snapshot = _messagingAutomation.DetectConversation(
+                    platform,
+                    workItem.AutoSelectDetectedChat);
+                if (!snapshot.Found || string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
+                {
+                    continue;
+                }
+
+                var detectedLanguage = workItem.AutoDetectLanguage
+                    ? _languageDetection.DetectLanguage(snapshot.LatestIncomingMessage, workItem.FallbackLanguage)
+                    : workItem.FallbackLanguage;
+                var replyKey = string.Format(
+                    "{0}|{1}|{2}",
+                    platform.Id,
+                    detectedLanguage,
+                    snapshot.LatestIncomingMessage.Trim());
+                if (replyKey.Equals(workItem.LastProcessedReplyKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+
+                var suggestion = _replyLearning.SuggestReply(
+                    platform.Id,
+                    snapshot.LatestIncomingMessage,
+                    detectedLanguage);
+
+                return new ReplyAssistantWorkResult
+                {
+                    Found = true,
+                    AutoSend = workItem.AutoSend,
+                    AutoSelectDetectedChat = workItem.AutoSelectDetectedChat,
+                    ReplyKey = replyKey,
+                    DetectedLanguage = detectedLanguage,
+                    SuggestedReply = suggestion.ReplyText,
+                    UsedFallback = suggestion.UsedFallback,
+                    Platform = platform,
+                    Snapshot = snapshot
+                };
+            }
+
+            return null;
+        }
+
+        private void ApplyReplyAssistantWorkResult(ReplyAssistantWorkResult result)
+        {
+            if (result == null || !result.Found || result.Platform == null || result.Snapshot == null)
+            {
+                return;
+            }
+
+            SelectPlatformById(result.Platform.Id);
+            _incomingMessageTextBox.Text = result.Snapshot.LatestIncomingMessage;
+            _generatedReplyTextBox.Text = result.SuggestedReply;
+            _lastProcessedReplyKey = result.ReplyKey;
+            _lastDetectedReplyLanguage = result.DetectedLanguage;
+            _detectedReplyLanguageLabel.Text = _autoDetectReplyLanguageCheckBox.Checked
+                ? "Auto: " + result.DetectedLanguage
+                : "Manual: " + result.DetectedLanguage;
+
+            LogSnapshotDetails("Auto-detected chat", result.Platform, result.Snapshot);
+            Log(result.UsedFallback
+                ? string.Format("Used fallback {0} reply during background processing.", result.DetectedLanguage)
+                : string.Format("Prepared learned {0} reply during background processing.", result.DetectedLanguage));
+
+            if (result.AutoSend)
+            {
+                SendCurrentReply();
+            }
+            else
+            {
+                DraftCurrentReply();
+            }
         }
 
         private string ResolveReplyLanguage(string messageText, bool verbose)
@@ -1938,11 +2120,16 @@ namespace DeskCallAssistant
                 try
                 {
                     var exportText = string.Format(
-                        "Desk Call Assistant log export{0}Exported: {1}{0}Status: {2}{0}Reply language mode: {3}{0}{0}{4}",
+                        "Desk Call Assistant log export{0}Exported: {1}{0}Status: {2}{0}Reply language mode: {3}{0}Auto-select detected chat: {4}{0}Reply assistant enabled: {5}{0}Auto-send enabled: {6}{0}Selected platform: {7}{0}Fallback language: {8}{0}{0}{9}",
                         Environment.NewLine,
                         DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
                         _statusLabel.Text,
                         _detectedReplyLanguageLabel.Text,
+                        _autoSelectDetectedChatCheckBox.Checked ? "Yes" : "No",
+                        _replyAssistantCheckBox.Checked ? "Yes" : "No",
+                        _autoSendReplyCheckBox.Checked ? "Yes" : "No",
+                        GetSelectedPlatformId(),
+                        _replyLanguageComboBox.SelectedItem as string,
                         _logTextBox.Text);
                     File.WriteAllText(dialog.FileName, exportText);
                     Log("Exported the activity log to " + dialog.FileName + ".");
@@ -2034,6 +2221,64 @@ namespace DeskCallAssistant
 
             _logTextBox.AppendText(
                 string.Format("[{0}] {1}{2}", DateTime.Now.ToString("HH:mm:ss"), message, Environment.NewLine));
+        }
+
+        private void LogSnapshotDetails(string action, MessagingPlatformDefinition platform, ConversationSnapshot snapshot)
+        {
+            if (snapshot == null)
+            {
+                Log(action + ": no snapshot details were available.");
+                return;
+            }
+
+            var platformName = platform != null ? platform.DisplayName : (snapshot.PlatformId ?? "unknown");
+            var summary = string.Format(
+                "{0} on {1}: {2}",
+                action,
+                platformName,
+                string.IsNullOrWhiteSpace(snapshot.Message) ? "no message" : snapshot.Message);
+            Log(summary);
+
+            var details = new List<string>();
+            if (!string.IsNullOrWhiteSpace(snapshot.WindowTitle))
+            {
+                details.Add("window=" + snapshot.WindowTitle);
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.ProcessName))
+            {
+                details.Add("process=" + snapshot.ProcessName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.DetectionMode))
+            {
+                details.Add("mode=" + snapshot.DetectionMode);
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.MatchedElementName))
+            {
+                details.Add("element=" + snapshot.MatchedElementName);
+            }
+
+            if (snapshot.ComposerFound)
+            {
+                details.Add("composer=yes");
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
+            {
+                details.Add("message=" + snapshot.LatestIncomingMessage);
+            }
+
+            if (!string.IsNullOrWhiteSpace(snapshot.DiagnosticInfo))
+            {
+                details.Add("diagnostics=" + snapshot.DiagnosticInfo);
+            }
+
+            if (details.Count > 0)
+            {
+                Log("  " + string.Join(" | ", details.ToArray()));
+            }
         }
 
         private void SetStatus(string message)
