@@ -29,6 +29,8 @@ namespace DeskCallAssistant
         private readonly ToolStripMenuItem _trayShowMenuItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem _traySpeakStopMenuItem = new ToolStripMenuItem();
         private readonly ToolStripMenuItem _trayExitMenuItem = new ToolStripMenuItem();
+        private readonly Panel _scrollHost = new Panel();
+        private readonly TableLayoutPanel _rootLayout = new TableLayoutPanel();
         private readonly FiverrAssistantService _fiverrAssistant;
         private readonly Panel _callModeBar = new Panel();
         private readonly Panel _messageModeBar = new Panel();
@@ -97,8 +99,8 @@ namespace DeskCallAssistant
 
             Text = "Desk Call Assistant";
             StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(1180, 1100);
-            ClientSize = new Size(1180, 1480);
+            MinimumSize = new Size(900, 700);
+            ClientSize = new Size(1180, 960);
             KeyPreview = true;
 
             InitializeLayout();
@@ -127,6 +129,7 @@ namespace DeskCallAssistant
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
+            UpdateScrollableLayoutWidth();
 
             if (WindowState == FormWindowState.Minimized && _minimizeToTrayCheckBox.Checked)
             {
@@ -160,31 +163,56 @@ namespace DeskCallAssistant
 
         private void InitializeLayout()
         {
-            var root = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                Padding = new Padding(12),
-                ColumnCount = 1,
-                RowCount = 8
-            };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-            Controls.Add(root);
+            _scrollHost.Dock = DockStyle.Fill;
+            _scrollHost.AutoScroll = true;
+            _scrollHost.Resize += (_, __) => UpdateScrollableLayoutWidth();
+            Controls.Add(_scrollHost);
 
-            root.Controls.Add(BuildLiveDashboard(), 0, 0);
-            root.Controls.Add(BuildAutomationPanel(), 0, 1);
-            root.Controls.Add(BuildComputePanel(), 0, 2);
-            root.Controls.Add(BuildSpeechPanel(), 0, 3);
-            root.Controls.Add(BuildReplyAssistantPanel(), 0, 4);
-            root.Controls.Add(BuildFiverrAssistantPanel(), 0, 5);
-            root.Controls.Add(BuildLogPanel(), 0, 6);
-            root.Controls.Add(BuildStatusPanel(), 0, 7);
+            _rootLayout.AutoSize = true;
+            _rootLayout.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            _rootLayout.GrowStyle = TableLayoutPanelGrowStyle.FixedSize;
+            _rootLayout.Location = new Point(0, 0);
+            _rootLayout.Padding = new Padding(12);
+            _rootLayout.Margin = new Padding(0);
+            _rootLayout.ColumnCount = 1;
+            _rootLayout.RowCount = 8;
+            _rootLayout.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            _rootLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            _rootLayout.RowStyles.Clear();
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 260f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
+            _scrollHost.Controls.Add(_rootLayout);
+
+            _rootLayout.Controls.Add(BuildLiveDashboard(), 0, 0);
+            _rootLayout.Controls.Add(BuildAutomationPanel(), 0, 1);
+            _rootLayout.Controls.Add(BuildComputePanel(), 0, 2);
+            _rootLayout.Controls.Add(BuildSpeechPanel(), 0, 3);
+            _rootLayout.Controls.Add(BuildReplyAssistantPanel(), 0, 4);
+            _rootLayout.Controls.Add(BuildFiverrAssistantPanel(), 0, 5);
+            _rootLayout.Controls.Add(BuildLogPanel(), 0, 6);
+            _rootLayout.Controls.Add(BuildStatusPanel(), 0, 7);
+
+            UpdateScrollableLayoutWidth();
+        }
+
+        private void UpdateScrollableLayoutWidth()
+        {
+            if (!_scrollHost.IsHandleCreated && _scrollHost.Width <= 0)
+            {
+                return;
+            }
+
+            var targetWidth = Math.Max(_scrollHost.ClientSize.Width - 1, MinimumSize.Width - 40);
+            if (targetWidth > 0)
+            {
+                _rootLayout.Width = targetWidth;
+            }
         }
 
         private Control BuildLiveDashboard()
