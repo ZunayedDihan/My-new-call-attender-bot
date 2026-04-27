@@ -277,20 +277,20 @@ namespace DeskCallAssistant
             var normalized = Normalize(language).ToLowerInvariant();
             if (normalized == "bengali")
             {
-                return "আমি একটু পরে বিস্তারিত জানাচ্ছি।";
+                return "আসসালামু আলাইকুম। বার্তাটির জন্য ধন্যবাদ, একটু পর বিস্তারিত জানাচ্ছি।";
             }
 
             if (normalized == "japanese")
             {
-                return "後で詳しく返信します。";
+                return "こんにちは。メッセージありがとうございます。後ほど詳しく返信します。";
             }
 
             if (normalized == "banglish")
             {
-                return "Ektu pore details diye reply dicchi.";
+                return "Assalamu alaikum, message er jonno dhonnobad. Ektu pore details diye reply dicchi.";
             }
 
-            return "I'll reply with more details shortly.";
+            return "Hello, thanks for your message. I'll reply in more detail shortly.";
         }
 
         private static string Normalize(string value)

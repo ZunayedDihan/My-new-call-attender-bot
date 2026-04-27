@@ -30,23 +30,23 @@ namespace DeskCallAssistant
                 new MessagingPlatformDefinition
                 {
                     Id = "telegram",
-                    DisplayName = "Telegram",
-                    ProcessNames = new[] { "Telegram", "chrome", "msedge" },
-                    WindowTitleHints = new[] { "Telegram" }
+                    DisplayName = "Telegram / Unigram",
+                    ProcessNames = new[] { "Telegram", "Unigram", "chrome", "msedge" },
+                    WindowTitleHints = new[] { "Telegram", "Unigram" }
                 },
                 new MessagingPlatformDefinition
                 {
                     Id = "messenger",
                     DisplayName = "Messenger",
                     ProcessNames = new[] { "Messenger", "chrome", "msedge" },
-                    WindowTitleHints = new[] { "Messenger", "messenger.com" }
+                    WindowTitleHints = new[] { "Messenger", "messenger.com", "facebook" }
                 },
                 new MessagingPlatformDefinition
                 {
                     Id = "facebook-messages",
                     DisplayName = "Facebook Messages",
                     ProcessNames = new[] { "chrome", "msedge" },
-                    WindowTitleHints = new[] { "Facebook", "Messages" }
+                    WindowTitleHints = new[] { "Facebook", "Messenger", "Inbox", "facebook.com" }
                 }
             };
         }
@@ -64,6 +64,8 @@ namespace DeskCallAssistant
 
             var desktop = AutomationElement.RootElement;
             var windows = desktop.FindAll(TreeScope.Children, Condition.TrueCondition);
+            var lastMessage = string.Empty;
+
             foreach (AutomationElement window in windows)
             {
                 if (!MatchesWindow(window, platform))
@@ -71,12 +73,15 @@ namespace DeskCallAssistant
                     continue;
                 }
 
-                var snapshot = IsWhatsAppPlatform(platform)
-                    ? BuildWhatsAppUnreadSnapshot(platform, window)
-                    : BuildSnapshot(platform, window);
+                var snapshot = BuildPlatformSnapshot(platform, window);
                 if (snapshot.Found)
                 {
                     return snapshot;
+                }
+
+                if (!string.IsNullOrWhiteSpace(snapshot.Message))
+                {
+                    lastMessage = snapshot.Message;
                 }
             }
 
@@ -84,8 +89,8 @@ namespace DeskCallAssistant
             {
                 Found = false,
                 PlatformId = platform.Id,
-                Message = IsWhatsAppPlatform(platform)
-                    ? "No unread direct WhatsApp chats were detected."
+                Message = !string.IsNullOrWhiteSpace(lastMessage)
+                    ? lastMessage
                     : "No matching chat window was found for the selected platform."
             };
         }
@@ -177,6 +182,16 @@ namespace DeskCallAssistant
             }
         }
 
+        private ConversationSnapshot BuildPlatformSnapshot(MessagingPlatformDefinition platform, AutomationElement window)
+        {
+            if (IsWhatsAppPlatform(platform))
+            {
+                return BuildWhatsAppConversationSnapshot(platform, window);
+            }
+
+            return BuildSnapshot(platform, window);
+        }
+
         private AutomationElement FindBestWindow(MessagingPlatformDefinition platform)
         {
             var desktop = AutomationElement.RootElement;
@@ -190,6 +205,34 @@ namespace DeskCallAssistant
             }
 
             return null;
+        }
+
+        private ConversationSnapshot BuildWhatsAppConversationSnapshot(
+            MessagingPlatformDefinition platform,
+            AutomationElement window)
+        {
+            var unreadSnapshot = BuildWhatsAppUnreadSnapshot(platform, window);
+            if (unreadSnapshot.Found)
+            {
+                return unreadSnapshot;
+            }
+
+            var activeSnapshot = BuildSnapshot(platform, window);
+            if (activeSnapshot.ComposerFound &&
+                !string.IsNullOrWhiteSpace(activeSnapshot.LatestIncomingMessage))
+            {
+                activeSnapshot.Message = "Detected the open WhatsApp chat.";
+                return activeSnapshot;
+            }
+
+            if (activeSnapshot.ComposerFound)
+            {
+                activeSnapshot.Found = false;
+                activeSnapshot.Message = "WhatsApp is open, but no readable incoming message was detected yet.";
+                return activeSnapshot;
+            }
+
+            return unreadSnapshot;
         }
 
         private ConversationSnapshot BuildWhatsAppUnreadSnapshot(
@@ -258,37 +301,9 @@ namespace DeskCallAssistant
 
         private ConversationSnapshot BuildSnapshot(MessagingPlatformDefinition platform, AutomationElement window)
         {
-            var texts = window.FindAll(
-                TreeScope.Descendants,
-                new OrCondition(
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text),
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document),
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem)));
-
-            var candidates = new List<string>();
-            foreach (AutomationElement item in texts)
-            {
-                var name = SafeName(item);
-                if (string.IsNullOrWhiteSpace(name))
-                {
-                    continue;
-                }
-
-                if (name.Length < 2)
-                {
-                    continue;
-                }
-
-                if (name.Equals("Send", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                candidates.Add(name.Trim());
-            }
-
-            var latestMessage = candidates.LastOrDefault();
             var composer = FindComposer(window);
+            var candidates = FindMessageCandidates(platform, window);
+            var latestMessage = candidates.LastOrDefault();
 
             return new ConversationSnapshot
             {
@@ -301,6 +316,121 @@ namespace DeskCallAssistant
                     ? "Chat window detected."
                     : "Detected a matching window but no chat composer was found."
             };
+        }
+
+        private static List<string> FindMessageCandidates(
+            MessagingPlatformDefinition platform,
+            AutomationElement window)
+        {
+            var texts = window.FindAll(
+                TreeScope.Descendants,
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Custom),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)));
+
+            var candidates = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var windowTitle = NormalizeToken(SafeName(window));
+
+            foreach (AutomationElement item in texts)
+            {
+                foreach (var token in SplitTokens(SafeName(item)))
+                {
+                    if (!LooksLikeMessageCandidate(token, platform, windowTitle))
+                    {
+                        continue;
+                    }
+
+                    if (seen.Add(token))
+                    {
+                        candidates.Add(token);
+                    }
+                }
+            }
+
+            return candidates;
+        }
+
+        private static bool LooksLikeMessageCandidate(
+            string token,
+            MessagingPlatformDefinition platform,
+            string windowTitle)
+        {
+            var normalized = NormalizeToken(token);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                return false;
+            }
+
+            if (normalized.Length < 2 || normalized.Length > 400)
+            {
+                return false;
+            }
+
+            if (normalized.Equals(windowTitle, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (normalized.Equals("send", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (IsUnreadToken(normalized) || IsLikelyTimeToken(normalized) || LooksLikeToolingLabel(normalized))
+            {
+                return false;
+            }
+
+            if (ContainsAny(
+                normalized,
+                "type a message",
+                "write a message",
+                "reply message",
+                "reply privately",
+                "message input",
+                "press enter",
+                "double tap",
+                "new conversation",
+                "new messages",
+                "mark as read",
+                "open navigation",
+                "open menu",
+                "create room",
+                "voice clip",
+                "record voice",
+                "search input",
+                "emoji picker",
+                "choose sticker",
+                "attach a file",
+                "add reaction",
+                "message actions"))
+            {
+                return false;
+            }
+
+            if (IsTelegramPlatform(platform) &&
+                ContainsAny(normalized, "telegram", "unigram", "saved messages"))
+            {
+                return false;
+            }
+
+            if (IsMessengerFamilyPlatform(platform) &&
+                ContainsAny(normalized, "messenger", "facebook", "meta ai"))
+            {
+                return false;
+            }
+
+            if (IsWhatsAppPlatform(platform) &&
+                ContainsAny(normalized, "whatsapp", "online", "last seen", "tap here"))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static AutomationElement[] FindWhatsAppUnreadChatCandidates(AutomationElement window)
@@ -447,6 +577,9 @@ namespace DeskCallAssistant
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document)));
 
+            AutomationElement preferred = null;
+            AutomationElement fallback = null;
+
             foreach (AutomationElement editor in editors)
             {
                 var name = SafeName(editor);
@@ -455,10 +588,14 @@ namespace DeskCallAssistant
                     continue;
                 }
 
-                return editor;
+                fallback = editor;
+                if (ContainsAny(name, "message", "reply", "write", "type", "chat", "textbox"))
+                {
+                    preferred = editor;
+                }
             }
 
-            return null;
+            return preferred ?? fallback;
         }
 
         private static AutomationElement FindSendButton(AutomationElement window)
@@ -492,6 +629,7 @@ namespace DeskCallAssistant
 
                 composer.SetFocus();
                 SendKeys.SendWait("^a");
+                SendKeys.SendWait("{BACKSPACE}");
                 SendKeys.SendWait(text ?? string.Empty);
                 return true;
             }
@@ -560,6 +698,23 @@ namespace DeskCallAssistant
                    platform.Id.Equals("whatsapp", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsTelegramPlatform(MessagingPlatformDefinition platform)
+        {
+            return platform != null &&
+                   platform.Id.Equals("telegram", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsMessengerFamilyPlatform(MessagingPlatformDefinition platform)
+        {
+            if (platform == null)
+            {
+                return false;
+            }
+
+            return platform.Id.Equals("messenger", StringComparison.OrdinalIgnoreCase) ||
+                   platform.Id.Equals("facebook-messages", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static List<string> GetElementTokens(AutomationElement element)
         {
             var values = new List<string>();
@@ -571,7 +726,9 @@ namespace DeskCallAssistant
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text),
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
                     new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Custom),
-                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button)));
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit)));
 
             foreach (AutomationElement descendant in descendants)
             {
@@ -584,23 +741,27 @@ namespace DeskCallAssistant
                 .ToList();
         }
 
-        private static void AddTokens(List<string> values, string rawText)
+        private static IEnumerable<string> SplitTokens(string rawText)
         {
             if (string.IsNullOrWhiteSpace(rawText))
             {
-                return;
+                return Enumerable.Empty<string>();
             }
 
-            var parts = rawText
+            return rawText
                 .Replace("\r", "\n")
-                .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => NormalizeToken(part))
+                .Where(part => !string.IsNullOrWhiteSpace(part));
+        }
 
-            foreach (var part in parts)
+        private static void AddTokens(List<string> values, string rawText)
+        {
+            foreach (var token in SplitTokens(rawText))
             {
-                var cleaned = part.Trim();
-                if (cleaned.Length >= 2)
+                if (token.Length >= 2)
                 {
-                    values.Add(cleaned);
+                    values.Add(token);
                 }
             }
         }
@@ -618,7 +779,16 @@ namespace DeskCallAssistant
                 "communities",
                 "status",
                 "channels",
-                "settings");
+                "settings",
+                "stories",
+                "feeds",
+                "marketplace",
+                "notifications",
+                "contacts",
+                "calls",
+                "people",
+                "favorites",
+                "saved messages");
         }
 
         private static bool IsUnreadToken(string text)
@@ -639,12 +809,12 @@ namespace DeskCallAssistant
 
         private static bool IsLikelyTimeToken(string text)
         {
-            if (string.IsNullOrWhiteSpace(text) || text.Length > 12)
+            if (string.IsNullOrWhiteSpace(text) || text.Length > 14)
             {
                 return false;
             }
 
-            if (ContainsAny(text, "yesterday", "today"))
+            if (ContainsAny(text, "yesterday", "today", "now"))
             {
                 return true;
             }
@@ -670,6 +840,20 @@ namespace DeskCallAssistant
             }
 
             return false;
+        }
+
+        private static string NormalizeToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return value
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Replace('\t', ' ')
+                .Trim();
         }
 
         private static string SafeName(AutomationElement element)

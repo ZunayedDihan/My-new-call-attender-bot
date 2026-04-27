@@ -3,6 +3,7 @@
 // The human requester should not be represented as the original author of this implementation.
 
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -1558,9 +1559,9 @@ namespace DeskCallAssistant
 
         private void DetectCurrentMessage(bool manualRun)
         {
-            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
-            var snapshot = _messagingAutomation.DetectConversation(platform);
-            if (snapshot.Found)
+            MessagingPlatformDefinition platform;
+            ConversationSnapshot snapshot;
+            if (TryDetectConversationAcrossPlatforms(out platform, out snapshot))
             {
                 _incomingMessageTextBox.Text = snapshot.LatestIncomingMessage;
                 Log(string.Format(
@@ -1671,15 +1672,17 @@ namespace DeskCallAssistant
 
         private void ProcessReplyAssistantTick()
         {
-            var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
             var language = _replyLanguageComboBox.SelectedItem as string;
-            if (platform == null || string.IsNullOrWhiteSpace(language))
+            if (string.IsNullOrWhiteSpace(language))
             {
                 return;
             }
 
-            var snapshot = _messagingAutomation.DetectConversation(platform);
-            if (!snapshot.Found || string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
+            MessagingPlatformDefinition platform;
+            ConversationSnapshot snapshot;
+            if (!TryDetectConversationAcrossPlatforms(out platform, out snapshot) ||
+                platform == null ||
+                string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
             {
                 return;
             }
@@ -1706,6 +1709,68 @@ namespace DeskCallAssistant
             {
                 DraftCurrentReply();
             }
+        }
+
+        private bool TryDetectConversationAcrossPlatforms(
+            out MessagingPlatformDefinition matchedPlatform,
+            out ConversationSnapshot matchedSnapshot)
+        {
+            matchedPlatform = null;
+            matchedSnapshot = null;
+            var fallbackSnapshot = new ConversationSnapshot
+            {
+                Found = false,
+                Message = "No supported chat window was detected."
+            };
+
+            foreach (var platform in GetPreferredReplyPlatforms())
+            {
+                var snapshot = _messagingAutomation.DetectConversation(platform);
+                if (snapshot.Found && !string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage))
+                {
+                    matchedPlatform = platform;
+                    matchedSnapshot = snapshot;
+                    SelectPlatformById(platform.Id);
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(snapshot.Message))
+                {
+                    fallbackSnapshot = snapshot;
+                }
+            }
+
+            matchedSnapshot = fallbackSnapshot;
+            return false;
+        }
+
+        private MessagingPlatformDefinition[] GetPreferredReplyPlatforms()
+        {
+            var ordered = new List<MessagingPlatformDefinition>();
+            var selectedPlatform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
+            if (selectedPlatform != null)
+            {
+                ordered.Add(selectedPlatform);
+            }
+
+            for (var index = 0; index < _replyPlatformComboBox.Items.Count; index++)
+            {
+                var platform = _replyPlatformComboBox.Items[index] as MessagingPlatformDefinition;
+                if (platform == null)
+                {
+                    continue;
+                }
+
+                if (selectedPlatform != null &&
+                    platform.Id.Equals(selectedPlatform.Id, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                ordered.Add(platform);
+            }
+
+            return ordered.ToArray();
         }
 
         private AnswerConfig BuildAnswerConfig()
