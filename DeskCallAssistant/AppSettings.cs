@@ -6,6 +6,11 @@ namespace DeskCallAssistant
 {
     public sealed class AppSettings
     {
+        public AppSettings()
+        {
+            AutoDetectReplyLanguage = true;
+        }
+
         public bool AutoAnswerEnabled { get; set; }
 
         public decimal ScanIntervalSeconds { get; set; }
@@ -39,6 +44,8 @@ namespace DeskCallAssistant
         public decimal ReplyIntervalSeconds { get; set; }
 
         public string ReplyPlatformId { get; set; }
+
+        public bool AutoDetectReplyLanguage { get; set; }
 
         public string ReplyLanguage { get; set; }
 

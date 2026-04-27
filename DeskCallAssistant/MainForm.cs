@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -16,6 +17,7 @@ namespace DeskCallAssistant
         private readonly CallAutomationService _callAutomation = new CallAutomationService();
         private readonly ComputePolicyService _computePolicy = new ComputePolicyService();
         private readonly LocalLearningService _learning = new LocalLearningService();
+        private readonly LanguageDetectionService _languageDetection = new LanguageDetectionService();
         private readonly MessagingAutomationService _messagingAutomation = new MessagingAutomationService();
         private readonly MessagingReplyLearningService _replyLearning = new MessagingReplyLearningService();
         private readonly StorageLocationService _storageLocations = new StorageLocationService();
@@ -47,6 +49,7 @@ namespace DeskCallAssistant
         private readonly CheckBox _preferGpuCheckBox = new CheckBox();
         private readonly CheckBox _replyAssistantCheckBox = new CheckBox();
         private readonly CheckBox _autoSendReplyCheckBox = new CheckBox();
+        private readonly CheckBox _autoDetectReplyLanguageCheckBox = new CheckBox();
         private readonly CheckBox _openFiverrWhenReplyAssistantStartsCheckBox = new CheckBox();
         private readonly CheckBox _startWithWindowsCheckBox = new CheckBox();
         private readonly CheckBox _minimizeToTrayCheckBox = new CheckBox();
@@ -84,7 +87,9 @@ namespace DeskCallAssistant
         private readonly Button _learnReplyPatternButton = new Button();
         private readonly Button _draftReplyButton = new Button();
         private readonly Button _sendReplyButton = new Button();
+        private readonly Button _exportLogButton = new Button();
         private readonly ListBox _suggestionsListBox = new ListBox();
+        private readonly Label _detectedReplyLanguageLabel = new Label();
         private readonly Label _statusLabel = new Label();
 
         private bool _forceExitFromTray;
@@ -92,6 +97,7 @@ namespace DeskCallAssistant
         private bool _settingsLoaded;
         private bool _trayBalloonShown;
         private string _lastProcessedReplyKey = string.Empty;
+        private string _lastDetectedReplyLanguage = "English";
 
         public MainForm()
         {
@@ -183,7 +189,7 @@ namespace DeskCallAssistant
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
-            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 330f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 260f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
@@ -710,12 +716,13 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
                 ColumnCount = 4,
-                RowCount = 6
+                RowCount = 7
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
@@ -745,6 +752,15 @@ namespace DeskCallAssistant
             _autoSendReplyCheckBox.AutoSize = true;
             _autoSendReplyCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
 
+            _autoDetectReplyLanguageCheckBox.Text = "Auto-detect language";
+            _autoDetectReplyLanguageCheckBox.AutoSize = true;
+            _autoDetectReplyLanguageCheckBox.Checked = true;
+            _autoDetectReplyLanguageCheckBox.CheckedChanged += (_, __) =>
+            {
+                UpdateDetectedLanguageStatus(_incomingMessageTextBox.Text, false);
+                ScheduleSettingsSave();
+            };
+
             _openFiverrWhenReplyAssistantStartsCheckBox.Text = "Open Fiverr inbox when assistant starts";
             _openFiverrWhenReplyAssistantStartsCheckBox.AutoSize = true;
             _openFiverrWhenReplyAssistantStartsCheckBox.CheckedChanged += (_, __) => ScheduleSettingsSave();
@@ -770,6 +786,7 @@ namespace DeskCallAssistant
                 Padding = new Padding(0, 7, 10, 0)
             });
             topPanel.Controls.Add(_autoSendReplyCheckBox);
+            topPanel.Controls.Add(_autoDetectReplyLanguageCheckBox);
             topPanel.Controls.Add(_openFiverrWhenReplyAssistantStartsCheckBox);
 
             _replyPlatformComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -778,17 +795,30 @@ namespace DeskCallAssistant
 
             _replyLanguageComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
             _replyLanguageComboBox.Dock = DockStyle.Fill;
-            _replyLanguageComboBox.SelectedIndexChanged += (_, __) => ScheduleSettingsSave();
+            _replyLanguageComboBox.SelectedIndexChanged += (_, __) =>
+            {
+                UpdateDetectedLanguageStatus(_incomingMessageTextBox.Text, false);
+                ScheduleSettingsSave();
+            };
 
             _incomingMessageTextBox.Multiline = true;
             _incomingMessageTextBox.ScrollBars = ScrollBars.Vertical;
             _incomingMessageTextBox.Dock = DockStyle.Fill;
-            _incomingMessageTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
+            _incomingMessageTextBox.TextChanged += (_, __) =>
+            {
+                UpdateDetectedLanguageStatus(_incomingMessageTextBox.Text, false);
+                ScheduleSettingsSave();
+            };
 
             _generatedReplyTextBox.Multiline = true;
             _generatedReplyTextBox.ScrollBars = ScrollBars.Vertical;
             _generatedReplyTextBox.Dock = DockStyle.Fill;
             _generatedReplyTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
+
+            _detectedReplyLanguageLabel.Dock = DockStyle.Fill;
+            _detectedReplyLanguageLabel.TextAlign = ContentAlignment.MiddleLeft;
+            _detectedReplyLanguageLabel.BorderStyle = BorderStyle.FixedSingle;
+            _detectedReplyLanguageLabel.Padding = new Padding(6, 0, 6, 0);
 
             _detectMessageButton.Text = "Detect";
             _detectMessageButton.AutoSize = true;
@@ -815,15 +845,25 @@ namespace DeskCallAssistant
 
             layout.Controls.Add(new Label { Text = "Platform", AutoSize = true, Dock = DockStyle.Fill }, 0, 1);
             layout.Controls.Add(_replyPlatformComboBox, 1, 1);
-            layout.Controls.Add(new Label { Text = "Reply language", AutoSize = true, Dock = DockStyle.Fill }, 2, 1);
+            layout.Controls.Add(new Label { Text = "Fallback language", AutoSize = true, Dock = DockStyle.Fill }, 2, 1);
             layout.Controls.Add(_replyLanguageComboBox, 3, 1);
 
-            layout.Controls.Add(new Label { Text = "Latest incoming message", AutoSize = true, Dock = DockStyle.Fill }, 0, 2);
-            layout.Controls.Add(_incomingMessageTextBox, 1, 2);
+            layout.Controls.Add(new Label { Text = "Detected language", AutoSize = true, Dock = DockStyle.Fill }, 0, 2);
+            layout.Controls.Add(_detectedReplyLanguageLabel, 1, 2);
+            layout.Controls.Add(new Label
+            {
+                Text = "Local detector is built in. No external dataset download is required.",
+                AutoSize = true,
+                Dock = DockStyle.Fill
+            }, 2, 2);
+            layout.SetColumnSpan(layout.GetControlFromPosition(2, 2), 2);
+
+            layout.Controls.Add(new Label { Text = "Latest incoming message", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
+            layout.Controls.Add(_incomingMessageTextBox, 1, 3);
             layout.SetColumnSpan(_incomingMessageTextBox, 3);
 
-            layout.Controls.Add(new Label { Text = "Generated reply", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
-            layout.Controls.Add(_generatedReplyTextBox, 1, 3);
+            layout.Controls.Add(new Label { Text = "Generated reply", AutoSize = true, Dock = DockStyle.Fill }, 0, 4);
+            layout.Controls.Add(_generatedReplyTextBox, 1, 4);
             layout.SetColumnSpan(_generatedReplyTextBox, 3);
 
             var buttonPanel = new FlowLayoutPanel
@@ -836,7 +876,7 @@ namespace DeskCallAssistant
             buttonPanel.Controls.Add(_learnReplyPatternButton);
             buttonPanel.Controls.Add(_draftReplyButton);
             buttonPanel.Controls.Add(_sendReplyButton);
-            layout.Controls.Add(buttonPanel, 0, 4);
+            layout.Controls.Add(buttonPanel, 0, 5);
             layout.SetColumnSpan(buttonPanel, 4);
 
             layout.Controls.Add(new Label
@@ -844,8 +884,8 @@ namespace DeskCallAssistant
                 Text = "Messenger web: official desktop web is messenger.com. Facebook also has messaging inside facebook.com.",
                 AutoSize = true,
                 Dock = DockStyle.Fill
-            }, 0, 5);
-            layout.SetColumnSpan(layout.GetControlFromPosition(0, 5), 4);
+            }, 0, 6);
+            layout.SetColumnSpan(layout.GetControlFromPosition(0, 6), 4);
 
             group.Controls.Add(layout);
             return group;
@@ -962,13 +1002,30 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill
             };
 
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                ColumnCount = 1,
+                RowCount = 2
+            };
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 38f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+
             _logTextBox.Multiline = true;
             _logTextBox.ReadOnly = true;
             _logTextBox.ScrollBars = ScrollBars.Vertical;
             _logTextBox.Dock = DockStyle.Fill;
             _logTextBox.BackColor = Color.White;
 
-            group.Controls.Add(_logTextBox);
+            _exportLogButton.Text = "Export log";
+            _exportLogButton.AutoSize = true;
+            _exportLogButton.Anchor = AnchorStyles.Left;
+            _exportLogButton.Click += (_, __) => ExportActivityLog();
+
+            layout.Controls.Add(_exportLogButton, 0, 0);
+            layout.Controls.Add(_logTextBox, 0, 1);
+            group.Controls.Add(layout);
             return group;
         }
 
@@ -1049,6 +1106,7 @@ namespace DeskCallAssistant
 
             _replyAssistantCheckBox.Checked = settings.ReplyAssistantEnabled;
             _autoSendReplyCheckBox.Checked = settings.AutoSendReplyEnabled;
+            _autoDetectReplyLanguageCheckBox.Checked = settings.AutoDetectReplyLanguage;
             _openFiverrWhenReplyAssistantStartsCheckBox.Checked = settings.OpenFiverrOnAssistantStarts;
             _replyIntervalSeconds.Value = NormalizeDecimal(settings.ReplyIntervalSeconds, _replyIntervalSeconds.Minimum, _replyIntervalSeconds.Maximum, 5);
             SelectPlatformById(settings.ReplyPlatformId);
@@ -1072,6 +1130,7 @@ namespace DeskCallAssistant
             _settingsLoaded = true;
             ApplyStartupRegistrationFromUi();
             ApplyManualTalkMode();
+            UpdateDetectedLanguageStatus(_incomingMessageTextBox.Text, false);
         }
 
         private void SaveSettingsToDisk()
@@ -1104,6 +1163,7 @@ namespace DeskCallAssistant
                 SpeechText = _speechTextBox.Text,
                 ReplyAssistantEnabled = _replyAssistantCheckBox.Checked,
                 AutoSendReplyEnabled = _autoSendReplyCheckBox.Checked,
+                AutoDetectReplyLanguage = _autoDetectReplyLanguageCheckBox.Checked,
                 OpenFiverrOnAssistantStarts = _openFiverrWhenReplyAssistantStartsCheckBox.Checked,
                 ReplyIntervalSeconds = _replyIntervalSeconds.Value,
                 ReplyPlatformId = GetSelectedPlatformId(),
@@ -1608,14 +1668,19 @@ namespace DeskCallAssistant
         private ReplySuggestionResult GenerateReplyFromCurrentInput(bool manualRun)
         {
             var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
-            var language = _replyLanguageComboBox.SelectedItem as string;
-            if (platform == null || string.IsNullOrWhiteSpace(language))
+            if (platform == null)
             {
                 if (manualRun)
                 {
-                    Log("Select a platform and language first.");
+                    Log("Select a platform first.");
                 }
 
+                return null;
+            }
+
+            var language = ResolveReplyLanguage(_incomingMessageTextBox.Text, manualRun);
+            if (string.IsNullOrWhiteSpace(language))
+            {
                 return null;
             }
 
@@ -1625,9 +1690,9 @@ namespace DeskCallAssistant
             if (manualRun)
             {
                 Log(result.UsedFallback
-                    ? "Used the fallback reply because no learned message pattern matched yet."
-                    : "Generated a reply from locally learned message patterns.");
-                SetStatus("Reply suggestion updated.");
+                    ? string.Format("Used the fallback {0} reply because no learned message pattern matched yet.", language)
+                    : string.Format("Generated a {0} reply from locally learned message patterns.", language));
+                SetStatus(string.Format("Reply suggestion updated for {0}.", language));
             }
 
             return result;
@@ -1636,12 +1701,13 @@ namespace DeskCallAssistant
         private void RememberCurrentReplyPair()
         {
             var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
-            var language = _replyLanguageComboBox.SelectedItem as string;
             if (platform == null)
             {
                 Log("Select a platform before learning a reply pattern.");
                 return;
             }
+
+            var language = ResolveReplyLanguage(_incomingMessageTextBox.Text, false);
 
             if (string.IsNullOrWhiteSpace(_incomingMessageTextBox.Text) ||
                 string.IsNullOrWhiteSpace(_generatedReplyTextBox.Text) ||
@@ -1656,8 +1722,8 @@ namespace DeskCallAssistant
                 _incomingMessageTextBox.Text,
                 _generatedReplyTextBox.Text,
                 language);
-            Log("Learned a new local reply pattern.");
-            SetStatus("Reply pattern saved locally.");
+            Log(string.Format("Learned a new local {0} reply pattern.", language));
+            SetStatus(string.Format("{0} reply pattern saved locally.", language));
         }
 
         private void DraftCurrentReply()
@@ -1677,12 +1743,13 @@ namespace DeskCallAssistant
         private void SendCurrentReply()
         {
             var platform = _replyPlatformComboBox.SelectedItem as MessagingPlatformDefinition;
-            var language = _replyLanguageComboBox.SelectedItem as string;
             if (platform == null)
             {
                 Log("Select a platform before sending a reply.");
                 return;
             }
+
+            var language = ResolveReplyLanguage(_incomingMessageTextBox.Text, false);
 
             var result = _messagingAutomation.SendReply(platform, _generatedReplyTextBox.Text);
             Log(result.Message);
@@ -1700,12 +1767,6 @@ namespace DeskCallAssistant
 
         private void ProcessReplyAssistantTick()
         {
-            var language = _replyLanguageComboBox.SelectedItem as string;
-            if (string.IsNullOrWhiteSpace(language))
-            {
-                return;
-            }
-
             MessagingPlatformDefinition platform;
             ConversationSnapshot snapshot;
             if (!TryDetectConversationAcrossPlatforms(out platform, out snapshot) ||
@@ -1718,7 +1779,7 @@ namespace DeskCallAssistant
             var replyKey = string.Format(
                 "{0}|{1}|{2}",
                 platform.Id,
-                language,
+                ResolveReplyLanguage(snapshot.LatestIncomingMessage, false),
                 snapshot.LatestIncomingMessage.Trim());
             if (replyKey.Equals(_lastProcessedReplyKey, StringComparison.OrdinalIgnoreCase))
             {
@@ -1799,6 +1860,100 @@ namespace DeskCallAssistant
             }
 
             return ordered.ToArray();
+        }
+
+        private string ResolveReplyLanguage(string messageText, bool verbose)
+        {
+            var fallbackLanguage = _replyLanguageComboBox.SelectedItem as string;
+            if (string.IsNullOrWhiteSpace(fallbackLanguage))
+            {
+                fallbackLanguage = "English";
+            }
+
+            string effectiveLanguage;
+            if (_autoDetectReplyLanguageCheckBox.Checked)
+            {
+                effectiveLanguage = _languageDetection.DetectLanguage(messageText, fallbackLanguage);
+            }
+            else
+            {
+                effectiveLanguage = fallbackLanguage;
+            }
+
+            UpdateDetectedLanguageStatus(messageText, false);
+
+            if (verbose)
+            {
+                Log(_autoDetectReplyLanguageCheckBox.Checked
+                    ? string.Format("Auto-detected reply language: {0}.", effectiveLanguage)
+                    : string.Format("Using manual reply language: {0}.", effectiveLanguage));
+            }
+
+            return effectiveLanguage;
+        }
+
+        private void UpdateDetectedLanguageStatus(string messageText, bool verbose)
+        {
+            var fallbackLanguage = _replyLanguageComboBox.SelectedItem as string;
+            if (string.IsNullOrWhiteSpace(fallbackLanguage))
+            {
+                fallbackLanguage = "English";
+            }
+
+            if (_autoDetectReplyLanguageCheckBox.Checked)
+            {
+                _lastDetectedReplyLanguage = _languageDetection.DetectLanguage(messageText, fallbackLanguage);
+                _detectedReplyLanguageLabel.Text = string.IsNullOrWhiteSpace(messageText)
+                    ? string.Format("Auto: waiting for a message (fallback {0})", fallbackLanguage)
+                    : "Auto: " + _lastDetectedReplyLanguage;
+            }
+            else
+            {
+                _lastDetectedReplyLanguage = fallbackLanguage;
+                _detectedReplyLanguageLabel.Text = "Manual: " + fallbackLanguage;
+            }
+
+            if (verbose)
+            {
+                Log("Reply language status updated to " + _detectedReplyLanguageLabel.Text + ".");
+            }
+        }
+
+        private void ExportActivityLog()
+        {
+            using (var dialog = new SaveFileDialog())
+            {
+                dialog.Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*";
+                dialog.FileName = string.Format(
+                    "DeskCallAssistant-log-{0}.txt",
+                    DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                dialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    SetStatus("Log export canceled.");
+                    return;
+                }
+
+                try
+                {
+                    var exportText = string.Format(
+                        "Desk Call Assistant log export{0}Exported: {1}{0}Status: {2}{0}Reply language mode: {3}{0}{0}{4}",
+                        Environment.NewLine,
+                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                        _statusLabel.Text,
+                        _detectedReplyLanguageLabel.Text,
+                        _logTextBox.Text);
+                    File.WriteAllText(dialog.FileName, exportText);
+                    Log("Exported the activity log to " + dialog.FileName + ".");
+                    SetStatus("Activity log exported.");
+                }
+                catch (Exception ex)
+                {
+                    Log("Failed to export the activity log: " + ex.Message);
+                    SetStatus("Activity log export failed.");
+                }
+            }
         }
 
         private AnswerConfig BuildAnswerConfig()

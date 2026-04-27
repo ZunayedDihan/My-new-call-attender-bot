@@ -50,6 +50,7 @@
     <Compile Include="CallActionResult.cs" />
     <Compile Include="ComputePolicyService.cs" />
     <Compile Include="ComputeStatus.cs" />
+    <Compile Include="LanguageDetectionService.cs" />
     <Compile Include="LocalLearningService.cs" />
     <Compile Include="ConversationSnapshot.cs" />
     <Compile Include="FiverrAssistantService.cs" />
