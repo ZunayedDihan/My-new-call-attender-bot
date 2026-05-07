@@ -428,7 +428,9 @@ namespace DeskCallAssistant
             checkBox.AutoSize = true;
             checkBox.Cursor = Cursors.Hand;
             checkBox.Font = CreateUiFont(9f, FontStyle.Bold);
-            checkBox.Padding = new Padding(8, 4, 8, 4);
+            checkBox.MaximumSize = new Size(230, 32);
+            checkBox.Padding = new Padding(6, 3, 6, 3);
+            checkBox.Margin = new Padding(4);
             checkBox.CheckedChanged += (_, __) => UpdateSelectableOptionColor(checkBox);
             UpdateSelectableOptionColor(checkBox);
         }
@@ -1253,13 +1255,13 @@ namespace DeskCallAssistant
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140f));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 70f));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 42f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 78f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 66f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 1f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 1f));
 
             _replyAssistantCheckBox.Text = "Watch chats and prepare replies";
             _replyAssistantCheckBox.AutoSize = true;
@@ -1305,21 +1307,25 @@ namespace DeskCallAssistant
             {
                 Dock = DockStyle.Fill,
                 FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false
+                WrapContents = true,
+                AutoScroll = false,
+                Padding = new Padding(10, 8, 10, 6)
             };
             topPanel.Controls.Add(_replyAssistantCheckBox);
             topPanel.Controls.Add(new Label
             {
                 Text = "Check every",
                 AutoSize = true,
-                Padding = new Padding(10, 7, 0, 0)
+                Padding = new Padding(10, 7, 0, 0),
+                Margin = new Padding(4, 4, 2, 4)
             });
             topPanel.Controls.Add(_replyIntervalSeconds);
             topPanel.Controls.Add(new Label
             {
                 Text = "seconds",
                 AutoSize = true,
-                Padding = new Padding(0, 7, 10, 0)
+                Padding = new Padding(0, 7, 10, 0),
+                Margin = new Padding(2, 4, 8, 4)
             });
             topPanel.Controls.Add(_autoSendReplyCheckBox);
             topPanel.Controls.Add(_autoSelectDetectedChatCheckBox);
@@ -1377,52 +1383,93 @@ namespace DeskCallAssistant
             _sendReplyButton.AutoSize = true;
             _sendReplyButton.Click += (_, __) => SendCurrentReply();
 
-            layout.Controls.Add(topPanel, 0, 0);
-            layout.SetColumnSpan(topPanel, 4);
+            var optionsGlassPanel = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 8),
+                Padding = new Padding(6),
+                StartColor = Color.FromArgb(248, 252, 255),
+                EndColor = Color.FromArgb(226, 239, 250),
+                GlowColor = Color.FromArgb(36, AccentCyan)
+            };
+            optionsGlassPanel.Controls.Add(topPanel);
+            layout.Controls.Add(optionsGlassPanel, 0, 0);
+            layout.SetColumnSpan(optionsGlassPanel, 4);
 
-            layout.Controls.Add(new Label { Text = "Platform", AutoSize = true, Dock = DockStyle.Fill }, 0, 1);
-            layout.Controls.Add(_replyPlatformComboBox, 1, 1);
-            layout.Controls.Add(new Label { Text = "Fallback language", AutoSize = true, Dock = DockStyle.Fill }, 2, 1);
-            layout.Controls.Add(_replyLanguageComboBox, 3, 1);
+            var selectorPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 4,
+                RowCount = 2,
+                BackColor = Color.Transparent,
+                Padding = new Padding(0, 2, 0, 4)
+            };
+            selectorPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f));
+            selectorPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            selectorPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f));
+            selectorPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            selectorPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            selectorPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
 
-            layout.Controls.Add(new Label { Text = "Detected language", AutoSize = true, Dock = DockStyle.Fill }, 0, 2);
-            layout.Controls.Add(_detectedReplyLanguageLabel, 1, 2);
-            layout.Controls.Add(new Label
+            selectorPanel.Controls.Add(new Label { Text = "Platform", AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            selectorPanel.Controls.Add(_replyPlatformComboBox, 1, 0);
+            selectorPanel.Controls.Add(new Label { Text = "Fallback language", AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 2, 0);
+            selectorPanel.Controls.Add(_replyLanguageComboBox, 3, 0);
+            selectorPanel.Controls.Add(new Label { Text = "Detected language", AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 1);
+            selectorPanel.Controls.Add(_detectedReplyLanguageLabel, 1, 1);
+            selectorPanel.Controls.Add(new Label
             {
                 Text = "Local detector is built in. No external dataset download is required.",
                 AutoSize = true,
-                Dock = DockStyle.Fill
-            }, 2, 2);
-            layout.SetColumnSpan(layout.GetControlFromPosition(2, 2), 2);
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 2, 1);
+            selectorPanel.SetColumnSpan(selectorPanel.GetControlFromPosition(2, 1), 2);
+            layout.Controls.Add(selectorPanel, 0, 1);
+            layout.SetColumnSpan(selectorPanel, 4);
 
-            layout.Controls.Add(new Label { Text = "Latest incoming message", AutoSize = true, Dock = DockStyle.Fill }, 0, 3);
-            layout.Controls.Add(_incomingMessageTextBox, 1, 3);
-            layout.SetColumnSpan(_incomingMessageTextBox, 3);
+            var messagePanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 2,
+                BackColor = Color.Transparent
+            };
+            messagePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132f));
+            messagePanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            messagePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            messagePanel.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            messagePanel.Controls.Add(new Label { Text = "Latest incoming message", AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            messagePanel.Controls.Add(_incomingMessageTextBox, 1, 0);
+            messagePanel.Controls.Add(new Label { Text = "Generated reply", AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 1);
+            messagePanel.Controls.Add(_generatedReplyTextBox, 1, 1);
+            layout.Controls.Add(messagePanel, 0, 2);
+            layout.SetColumnSpan(messagePanel, 4);
 
-            layout.Controls.Add(new Label { Text = "Generated reply", AutoSize = true, Dock = DockStyle.Fill }, 0, 4);
-            layout.Controls.Add(_generatedReplyTextBox, 1, 4);
-            layout.SetColumnSpan(_generatedReplyTextBox, 3);
 
             var buttonPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.LeftToRight
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Padding = new Padding(0, 4, 0, 0)
             };
             buttonPanel.Controls.Add(_detectMessageButton);
             buttonPanel.Controls.Add(_generateReplyButton);
             buttonPanel.Controls.Add(_learnReplyPatternButton);
             buttonPanel.Controls.Add(_draftReplyButton);
             buttonPanel.Controls.Add(_sendReplyButton);
-            layout.Controls.Add(buttonPanel, 0, 5);
+            layout.Controls.Add(buttonPanel, 0, 3);
             layout.SetColumnSpan(buttonPanel, 4);
 
             layout.Controls.Add(new Label
             {
                 Text = "Messenger web: official desktop web is messenger.com. Facebook also has messaging inside facebook.com.",
                 AutoSize = true,
-                Dock = DockStyle.Fill
-            }, 0, 6);
-            layout.SetColumnSpan(layout.GetControlFromPosition(0, 6), 4);
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 4);
+            layout.SetColumnSpan(layout.GetControlFromPosition(0, 4), 4);
 
             group.Controls.Add(layout);
             return group;
