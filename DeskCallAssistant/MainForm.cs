@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -95,6 +96,17 @@ namespace DeskCallAssistant
         private readonly ListBox _suggestionsListBox = new ListBox();
         private readonly Label _detectedReplyLanguageLabel = new Label();
         private readonly Label _statusLabel = new Label();
+
+        private static readonly Color CanvasColor = Color.FromArgb(224, 233, 241);
+        private static readonly Color PanelColor = Color.FromArgb(244, 248, 252);
+        private static readonly Color PanelAltColor = Color.FromArgb(232, 240, 249);
+        private static readonly Color InkColor = Color.FromArgb(24, 34, 48);
+        private static readonly Color MutedInkColor = Color.FromArgb(83, 99, 118);
+        private static readonly Color AccentBlue = Color.FromArgb(72, 126, 255);
+        private static readonly Color AccentCyan = Color.FromArgb(65, 220, 230);
+        private static readonly Color AccentGreen = Color.FromArgb(42, 166, 95);
+        private static readonly Color AccentOrange = Color.FromArgb(238, 139, 39);
+        private static readonly Color AccentViolet = Color.FromArgb(126, 89, 238);
 
         private bool _forceExitFromTray;
         private bool _replyAssistantWorkInProgress;
@@ -211,8 +223,13 @@ namespace DeskCallAssistant
 
         private void InitializeLayout()
         {
+            Font = CreateUiFont(9f, FontStyle.Regular);
+            BackColor = CanvasColor;
+
             _scrollHost.Dock = DockStyle.Fill;
             _scrollHost.AutoScroll = true;
+            _scrollHost.BackColor = CanvasColor;
+            _scrollHost.Paint += (_, e) => PaintAmbientBackground(e.Graphics, _scrollHost.ClientRectangle);
             _scrollHost.Resize += (_, __) => UpdateScrollableLayoutWidth();
             Controls.Add(_scrollHost);
 
@@ -220,14 +237,16 @@ namespace DeskCallAssistant
             _rootLayout.AutoSizeMode = AutoSizeMode.GrowAndShrink;
             _rootLayout.GrowStyle = TableLayoutPanelGrowStyle.FixedSize;
             _rootLayout.Location = new Point(0, 0);
-            _rootLayout.Padding = new Padding(12);
+            _rootLayout.Padding = new Padding(16);
             _rootLayout.Margin = new Padding(0);
             _rootLayout.ColumnCount = 1;
-            _rootLayout.RowCount = 8;
+            _rootLayout.RowCount = 9;
+            _rootLayout.BackColor = Color.Transparent;
             _rootLayout.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             _rootLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             _rootLayout.RowStyles.Clear();
-            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 150f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 104f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 156f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
@@ -237,14 +256,17 @@ namespace DeskCallAssistant
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 34f));
             _scrollHost.Controls.Add(_rootLayout);
 
-            _rootLayout.Controls.Add(BuildLiveDashboard(), 0, 0);
-            _rootLayout.Controls.Add(BuildAutomationPanel(), 0, 1);
-            _rootLayout.Controls.Add(BuildComputePanel(), 0, 2);
-            _rootLayout.Controls.Add(BuildSpeechPanel(), 0, 3);
-            _rootLayout.Controls.Add(BuildReplyAssistantPanel(), 0, 4);
-            _rootLayout.Controls.Add(BuildFiverrAssistantPanel(), 0, 5);
-            _rootLayout.Controls.Add(BuildLogPanel(), 0, 6);
-            _rootLayout.Controls.Add(BuildStatusPanel(), 0, 7);
+            _rootLayout.Controls.Add(BuildHeroPanel(), 0, 0);
+            _rootLayout.Controls.Add(BuildLiveDashboard(), 0, 1);
+            _rootLayout.Controls.Add(BuildAutomationPanel(), 0, 2);
+            _rootLayout.Controls.Add(BuildComputePanel(), 0, 3);
+            _rootLayout.Controls.Add(BuildSpeechPanel(), 0, 4);
+            _rootLayout.Controls.Add(BuildReplyAssistantPanel(), 0, 5);
+            _rootLayout.Controls.Add(BuildFiverrAssistantPanel(), 0, 6);
+            _rootLayout.Controls.Add(BuildLogPanel(), 0, 7);
+            _rootLayout.Controls.Add(BuildStatusPanel(), 0, 8);
+
+            ApplyNeoTactileTheme(_rootLayout);
 
             UpdateScrollableLayoutWidth();
         }
@@ -271,6 +293,141 @@ namespace DeskCallAssistant
             {
                 property.SetValue(control, true, null);
             }
+        }
+
+        private static Font CreateUiFont(float size, FontStyle style)
+        {
+            try
+            {
+                return new Font("Segoe UI Variable Text", size, style);
+            }
+            catch
+            {
+                return new Font("Segoe UI", size, style);
+            }
+        }
+
+        private static void PaintAmbientBackground(Graphics graphics, Rectangle bounds)
+        {
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                return;
+            }
+
+            graphics.SmoothingMode = SmoothingMode.HighQuality;
+            using (var brush = new LinearGradientBrush(
+                bounds,
+                Color.FromArgb(236, 245, 250),
+                Color.FromArgb(210, 223, 236),
+                LinearGradientMode.ForwardDiagonal))
+            {
+                graphics.FillRectangle(brush, bounds);
+            }
+
+            using (var cyanBrush = new SolidBrush(Color.FromArgb(58, AccentCyan)))
+            {
+                graphics.FillEllipse(cyanBrush, bounds.Right - 260, 44, 180, 180);
+            }
+
+            using (var blueBrush = new SolidBrush(Color.FromArgb(44, AccentBlue)))
+            {
+                graphics.FillEllipse(blueBrush, -70, 120, 210, 210);
+            }
+        }
+
+        private static void ApplyNeoTactileTheme(Control control)
+        {
+            if (control == null)
+            {
+                return;
+            }
+
+            if (control is GroupBox)
+            {
+                control.BackColor = Color.Transparent;
+                control.ForeColor = InkColor;
+                control.Font = CreateUiFont(9.25f, FontStyle.Bold);
+                control.Padding = new Padding(12, 10, 12, 12);
+            }
+            else if (control is Button)
+            {
+                StyleActionButton((Button)control);
+            }
+            else if (control is TextBox)
+            {
+                StyleTextBox((TextBox)control);
+            }
+            else if (control is ComboBox)
+            {
+                control.BackColor = Color.White;
+                control.ForeColor = InkColor;
+                control.Font = CreateUiFont(9f, FontStyle.Regular);
+            }
+            else if (control is NumericUpDown)
+            {
+                control.BackColor = Color.White;
+                control.ForeColor = InkColor;
+                control.Font = CreateUiFont(9f, FontStyle.Regular);
+            }
+            else if (control is Label)
+            {
+                control.ForeColor = control.ForeColor == Color.Empty || control.ForeColor == SystemColors.ControlText
+                    ? MutedInkColor
+                    : control.ForeColor;
+                control.Font = CreateUiFont(control.Font.Size, control.Font.Style);
+            }
+            else if (control is CheckBox)
+            {
+                control.ForeColor = InkColor;
+                control.Font = CreateUiFont(9f, FontStyle.Regular);
+            }
+            else if (control is TableLayoutPanel || control is FlowLayoutPanel)
+            {
+                control.BackColor = Color.Transparent;
+            }
+
+            foreach (Control child in control.Controls)
+            {
+                ApplyNeoTactileTheme(child);
+            }
+        }
+
+        private static void StyleActionButton(Button button)
+        {
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 0;
+            button.BackColor = Color.FromArgb(226, 234, 246);
+            button.ForeColor = InkColor;
+            button.Font = CreateUiFont(9f, FontStyle.Bold);
+            button.Cursor = Cursors.Hand;
+            button.Padding = new Padding(8, 2, 8, 2);
+            button.Tag = button.BackColor;
+            button.MouseEnter += (_, __) => button.BackColor = Blend(GetButtonBaseColor(button), Color.White, 0.34);
+            button.MouseLeave += (_, __) => button.BackColor = GetButtonBaseColor(button);
+            button.MouseDown += (_, __) => button.BackColor = Blend(GetButtonBaseColor(button), AccentBlue, 0.14);
+            button.MouseUp += (_, __) => button.BackColor = Blend(GetButtonBaseColor(button), Color.White, 0.34);
+        }
+
+        private static Color GetButtonBaseColor(Button button)
+        {
+            return button.Tag is Color ? (Color)button.Tag : button.BackColor;
+        }
+
+        private static void StyleTextBox(TextBox textBox)
+        {
+            textBox.BorderStyle = BorderStyle.FixedSingle;
+            textBox.BackColor = Color.FromArgb(250, 253, 255);
+            textBox.ForeColor = InkColor;
+            textBox.Font = CreateUiFont(9f, FontStyle.Regular);
+        }
+
+        private static Color Blend(Color from, Color to, double amount)
+        {
+            amount = Math.Max(0d, Math.Min(1d, amount));
+            return Color.FromArgb(
+                (int)(from.R + ((to.R - from.R) * amount)),
+                (int)(from.G + ((to.G - from.G) * amount)),
+                (int)(from.B + ((to.B - from.B) * amount)));
         }
 
         private void UpdateScrollableLayoutWidth()
@@ -344,6 +501,117 @@ namespace DeskCallAssistant
             return group;
         }
 
+        private Control BuildHeroPanel()
+        {
+            var panel = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(8, 4, 8, 8),
+                Padding = new Padding(24, 14, 24, 14),
+                StartColor = Color.FromArgb(245, 251, 255),
+                EndColor = Color.FromArgb(220, 234, 249),
+                GlowColor = Color.FromArgb(76, AccentCyan)
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                ColumnCount = 3,
+                RowCount = 2
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 54f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 23f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 58f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 42f));
+
+            var title = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "Desk Call Assistant",
+                Font = CreateUiFont(18f, FontStyle.Bold),
+                ForeColor = InkColor,
+                TextAlign = ContentAlignment.BottomLeft
+            };
+            var subtitle = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = "Local-first call, speech, and chat reply control center",
+                Font = CreateUiFont(9.5f, FontStyle.Regular),
+                ForeColor = MutedInkColor,
+                TextAlign = ContentAlignment.TopLeft
+            };
+
+            var privacyChip = BuildHeroChip("\uE72E", "Private learning", "Local storage only", AccentGreen);
+            var gpuChip = BuildHeroChip("\uE950", "GPU preferred", "When backend supports it", AccentBlue);
+
+            layout.Controls.Add(title, 0, 0);
+            layout.Controls.Add(subtitle, 0, 1);
+            layout.Controls.Add(privacyChip, 1, 0);
+            layout.SetRowSpan(privacyChip, 2);
+            layout.Controls.Add(gpuChip, 2, 0);
+            layout.SetRowSpan(gpuChip, 2);
+
+            panel.Controls.Add(layout);
+            return panel;
+        }
+
+        private static Control BuildHeroChip(string iconText, string title, string subtitle, Color accent)
+        {
+            var chip = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(8, 6, 0, 6),
+                Padding = new Padding(12, 8, 12, 8),
+                StartColor = Color.FromArgb(252, 254, 255),
+                EndColor = Color.FromArgb(232, 240, 250),
+                GlowColor = Color.FromArgb(54, accent)
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                ColumnCount = 2,
+                RowCount = 2
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 38f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+
+            var icon = new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = iconText,
+                Font = new Font("Segoe MDL2 Assets", 18f, FontStyle.Regular),
+                ForeColor = accent,
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+            layout.Controls.Add(icon, 0, 0);
+            layout.SetRowSpan(icon, 2);
+            layout.Controls.Add(new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = title,
+                Font = CreateUiFont(9.5f, FontStyle.Bold),
+                ForeColor = InkColor,
+                TextAlign = ContentAlignment.BottomLeft
+            }, 1, 0);
+            layout.Controls.Add(new Label
+            {
+                Dock = DockStyle.Fill,
+                Text = subtitle,
+                Font = CreateUiFont(8.25f, FontStyle.Regular),
+                ForeColor = MutedInkColor,
+                TextAlign = ContentAlignment.TopLeft
+            }, 1, 1);
+
+            chip.Controls.Add(layout);
+            return chip;
+        }
+
         private static Control BuildModeCard(
             Panel statusBar,
             string iconText,
@@ -356,7 +624,7 @@ namespace DeskCallAssistant
             {
                 Dock = DockStyle.Fill,
                 Margin = new Padding(8),
-                BackColor = Color.White,
+                BackColor = PanelColor,
                 ColumnCount = 1,
                 RowCount = 4
             };
@@ -373,6 +641,7 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Font = new Font("Segoe MDL2 Assets", 24f, FontStyle.Regular),
                 Text = iconText,
+                ForeColor = InkColor,
                 TextAlign = ContentAlignment.MiddleCenter
             };
 
@@ -389,19 +658,22 @@ namespace DeskCallAssistant
             {
                 Text = title,
                 Dock = DockStyle.Fill,
-                Font = new Font("Segoe UI", 11f, FontStyle.Bold),
+                Font = CreateUiFont(11f, FontStyle.Bold),
+                ForeColor = InkColor,
                 TextAlign = ContentAlignment.MiddleCenter
             }, 0, 0);
 
             stateLabel.Dock = DockStyle.Fill;
-            stateLabel.Font = new Font("Segoe UI", 10f, FontStyle.Regular);
+            stateLabel.Font = CreateUiFont(10f, FontStyle.Regular);
+            stateLabel.ForeColor = MutedInkColor;
             stateLabel.TextAlign = ContentAlignment.TopCenter;
             textPanel.Controls.Add(stateLabel, 0, 1);
 
             actionButton.Dock = DockStyle.Fill;
             actionButton.FlatStyle = FlatStyle.Flat;
             actionButton.FlatAppearance.BorderSize = 0;
-            actionButton.BackColor = Color.FromArgb(235, 238, 245);
+            actionButton.BackColor = PanelAltColor;
+            actionButton.ForeColor = InkColor;
             actionButton.Click += action;
 
             card.Controls.Add(statusBar, 0, 0);
@@ -1308,7 +1580,7 @@ namespace DeskCallAssistant
                 _autoAnswerCheckBox.Checked,
                 _autoAnswerCheckBox.Checked ? "Watching" : "Idle",
                 _autoAnswerCheckBox.Checked ? "Stop" : "Start",
-                Color.FromArgb(43, 138, 62));
+                AccentGreen);
 
             UpdateModeCard(
                 _messageModeBar,
@@ -1317,7 +1589,7 @@ namespace DeskCallAssistant
                 _replyAssistantCheckBox.Checked,
                 _replyAssistantCheckBox.Checked ? "Checking chats" : "Idle",
                 _replyAssistantCheckBox.Checked ? "Stop" : "Start",
-                Color.FromArgb(30, 102, 245));
+                AccentBlue);
 
             var voiceActive = _speech.IsSpeaking && !_manualTalkCheckBox.Checked;
             var voiceStatus = _manualTalkCheckBox.Checked
@@ -1327,8 +1599,8 @@ namespace DeskCallAssistant
                 ? "Use bot"
                 : (voiceActive ? "Stop" : "Speak");
             var voiceColor = _manualTalkCheckBox.Checked
-                ? Color.FromArgb(230, 119, 0)
-                : Color.FromArgb(112, 72, 232);
+                ? AccentOrange
+                : AccentViolet;
 
             UpdateModeCard(
                 _voiceModeBar,
@@ -1349,15 +1621,15 @@ namespace DeskCallAssistant
             string actionText,
             Color activeColor)
         {
-            statusBar.BackColor = active ? activeColor : Color.Silver;
+            statusBar.BackColor = active ? activeColor : Color.FromArgb(180, 194, 211);
             stateLabel.Text = stateText;
+            stateLabel.ForeColor = active ? activeColor : MutedInkColor;
             actionButton.Text = actionText;
             actionButton.BackColor = active
-                ? Color.FromArgb(
-                    System.Math.Min(activeColor.R + 170, 255),
-                    System.Math.Min(activeColor.G + 170, 255),
-                    System.Math.Min(activeColor.B + 170, 255))
-                : Color.FromArgb(235, 238, 245);
+                ? Blend(activeColor, Color.White, 0.70)
+                : PanelAltColor;
+            actionButton.Tag = actionButton.BackColor;
+            actionButton.ForeColor = InkColor;
         }
 
         private string BuildFiverrStatus()
@@ -2284,6 +2556,68 @@ namespace DeskCallAssistant
         private void SetStatus(string message)
         {
             _statusLabel.Text = message;
+        }
+
+        private sealed class NeoTactilePanel : Panel
+        {
+            public Color StartColor { get; set; }
+
+            public Color EndColor { get; set; }
+
+            public Color GlowColor { get; set; }
+
+            public NeoTactilePanel()
+            {
+                StartColor = PanelColor;
+                EndColor = PanelAltColor;
+                GlowColor = Color.FromArgb(48, AccentCyan);
+                DoubleBuffered = true;
+                ResizeRedraw = true;
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var bounds = ClientRectangle;
+                if (bounds.Width <= 1 || bounds.Height <= 1)
+                {
+                    base.OnPaint(e);
+                    return;
+                }
+
+                e.Graphics.SmoothingMode = SmoothingMode.HighQuality;
+                var cardBounds = new Rectangle(1, 1, bounds.Width - 3, bounds.Height - 3);
+                using (var path = CreateRoundedRectangle(cardBounds, 28))
+                using (var brush = new LinearGradientBrush(cardBounds, StartColor, EndColor, LinearGradientMode.ForwardDiagonal))
+                using (var borderPen = new Pen(Color.FromArgb(190, Color.White), 1f))
+                {
+                    e.Graphics.FillPath(brush, path);
+                    e.Graphics.DrawPath(borderPen, path);
+                }
+
+                using (var glowBrush = new SolidBrush(GlowColor))
+                {
+                    e.Graphics.FillEllipse(
+                        glowBrush,
+                        bounds.Right - 92,
+                        bounds.Bottom - 88,
+                        82,
+                        82);
+                }
+
+                base.OnPaint(e);
+            }
+
+            private static GraphicsPath CreateRoundedRectangle(Rectangle bounds, int radius)
+            {
+                var diameter = radius * 2;
+                var path = new GraphicsPath();
+                path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+                path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+                path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+                path.CloseFigure();
+                return path;
+            }
         }
     }
 }
