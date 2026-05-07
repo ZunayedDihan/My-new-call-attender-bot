@@ -237,7 +237,6 @@ namespace DeskCallAssistant
             _scrollHost.Dock = DockStyle.Fill;
             _scrollHost.AutoScroll = true;
             _scrollHost.BackColor = CanvasColor;
-            _scrollHost.Paint += (_, e) => PaintAmbientBackground(e.Graphics, _scrollHost.ClientRectangle);
             _scrollHost.Resize += (_, __) => UpdateScrollableLayoutWidth();
             Controls.Add(_scrollHost);
 
@@ -249,7 +248,7 @@ namespace DeskCallAssistant
             _rootLayout.Margin = new Padding(0);
             _rootLayout.ColumnCount = 1;
             _rootLayout.RowCount = 9;
-            _rootLayout.BackColor = Color.Transparent;
+            _rootLayout.BackColor = CanvasColor;
             _rootLayout.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             _rootLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             _rootLayout.RowStyles.Clear();
@@ -315,34 +314,6 @@ namespace DeskCallAssistant
             }
         }
 
-        private static void PaintAmbientBackground(Graphics graphics, Rectangle bounds)
-        {
-            if (bounds.Width <= 0 || bounds.Height <= 0)
-            {
-                return;
-            }
-
-            graphics.SmoothingMode = SmoothingMode.HighQuality;
-            using (var brush = new LinearGradientBrush(
-                bounds,
-                Color.FromArgb(236, 245, 250),
-                Color.FromArgb(210, 223, 236),
-                LinearGradientMode.ForwardDiagonal))
-            {
-                graphics.FillRectangle(brush, bounds);
-            }
-
-            using (var cyanBrush = new SolidBrush(Color.FromArgb(58, AccentCyan)))
-            {
-                graphics.FillEllipse(cyanBrush, bounds.Right - 260, 44, 180, 180);
-            }
-
-            using (var blueBrush = new SolidBrush(Color.FromArgb(44, AccentBlue)))
-            {
-                graphics.FillEllipse(blueBrush, -70, 120, 210, 210);
-            }
-        }
-
         private static void ApplyNeoTactileTheme(Control control)
         {
             if (control == null)
@@ -352,7 +323,7 @@ namespace DeskCallAssistant
 
             if (control is GroupBox)
             {
-                control.BackColor = Color.Transparent;
+                control.BackColor = CanvasColor;
                 control.ForeColor = InkColor;
                 control.Font = CreateUiFont(9.25f, FontStyle.Bold);
                 control.Padding = new Padding(12, 10, 12, 12);
@@ -390,7 +361,7 @@ namespace DeskCallAssistant
             }
             else if (control is TableLayoutPanel || control is FlowLayoutPanel)
             {
-                control.BackColor = Color.Transparent;
+                control.BackColor = PanelColor;
             }
 
             foreach (Control child in control.Controls)
@@ -2952,6 +2923,12 @@ namespace DeskCallAssistant
 
         private sealed class NeoTactilePanel : Panel
         {
+            private Bitmap _cachedBackground;
+            private Size _cachedSize;
+            private Color _cachedStartColor;
+            private Color _cachedEndColor;
+            private Color _cachedGlowColor;
+
             public Color StartColor { get; set; }
 
             public Color EndColor { get; set; }
@@ -2967,36 +2944,85 @@ namespace DeskCallAssistant
                 ResizeRedraw = true;
             }
 
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing && _cachedBackground != null)
+                {
+                    _cachedBackground.Dispose();
+                    _cachedBackground = null;
+                }
+
+                base.Dispose(disposing);
+            }
+
+            protected override void OnPaintBackground(PaintEventArgs e)
+            {
+                using (var brush = new SolidBrush(Parent != null ? Parent.BackColor : CanvasColor))
+                {
+                    e.Graphics.FillRectangle(brush, ClientRectangle);
+                }
+            }
+
             protected override void OnPaint(PaintEventArgs e)
             {
                 var bounds = ClientRectangle;
                 if (bounds.Width <= 1 || bounds.Height <= 1)
                 {
-                    base.OnPaint(e);
                     return;
                 }
 
-                e.Graphics.SmoothingMode = SmoothingMode.HighQuality;
-                var cardBounds = new Rectangle(1, 1, bounds.Width - 3, bounds.Height - 3);
-                using (var path = CreateRoundedRectangle(cardBounds, 28))
-                using (var brush = new LinearGradientBrush(cardBounds, StartColor, EndColor, LinearGradientMode.ForwardDiagonal))
-                using (var borderPen = new Pen(Color.FromArgb(190, Color.White), 1f))
+                EnsureCachedBackground(bounds.Size);
+                if (_cachedBackground != null)
                 {
-                    e.Graphics.FillPath(brush, path);
-                    e.Graphics.DrawPath(borderPen, path);
+                    e.Graphics.DrawImageUnscaled(_cachedBackground, Point.Empty);
+                }
+            }
+
+            private void EnsureCachedBackground(Size size)
+            {
+                if (_cachedBackground != null &&
+                    _cachedSize == size &&
+                    _cachedStartColor == StartColor &&
+                    _cachedEndColor == EndColor &&
+                    _cachedGlowColor == GlowColor)
+                {
+                    return;
                 }
 
-                using (var glowBrush = new SolidBrush(GlowColor))
+                if (_cachedBackground != null)
                 {
-                    e.Graphics.FillEllipse(
-                        glowBrush,
-                        bounds.Right - 92,
-                        bounds.Bottom - 88,
-                        82,
-                        82);
+                    _cachedBackground.Dispose();
                 }
 
-                base.OnPaint(e);
+                _cachedBackground = new Bitmap(size.Width, size.Height);
+                _cachedSize = size;
+                _cachedStartColor = StartColor;
+                _cachedEndColor = EndColor;
+                _cachedGlowColor = GlowColor;
+
+                using (var graphics = Graphics.FromImage(_cachedBackground))
+                {
+                    graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    graphics.Clear(Parent != null ? Parent.BackColor : CanvasColor);
+                    var cardBounds = new Rectangle(1, 1, size.Width - 3, size.Height - 3);
+                    using (var path = CreateRoundedRectangle(cardBounds, 22))
+                    using (var brush = new LinearGradientBrush(cardBounds, StartColor, EndColor, LinearGradientMode.ForwardDiagonal))
+                    using (var borderPen = new Pen(Color.FromArgb(165, Color.White), 1f))
+                    {
+                        graphics.FillPath(brush, path);
+                        graphics.DrawPath(borderPen, path);
+                    }
+
+                    using (var glowBrush = new SolidBrush(GlowColor))
+                    {
+                        graphics.FillEllipse(
+                            glowBrush,
+                            size.Width - 84,
+                            size.Height - 78,
+                            70,
+                            70);
+                    }
+                }
             }
 
             private static GraphicsPath CreateRoundedRectangle(Rectangle bounds, int radius)
