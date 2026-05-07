@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -74,6 +75,13 @@ namespace DeskCallAssistant
         private readonly ComboBox _replyPlatformComboBox = new ComboBox();
         private readonly ComboBox _replyLanguageComboBox = new ComboBox();
         private readonly ComboBox _fiverrLanguageComboBox = new ComboBox();
+        private readonly ComboBox _localAiModelComboBox = new ComboBox();
+        private readonly ComboBox _themeTypeComboBox = new ComboBox();
+        private readonly ComboBox _themeAccentComboBox = new ComboBox();
+        private readonly TextBox _localAiModelPathTextBox = new TextBox();
+        private readonly Button _downloadLocalAiButton = new Button();
+        private readonly Button _browseLocalAiButton = new Button();
+        private readonly Button _applyThemeButton = new Button();
         private readonly TrackBar _rateTrackBar = new TrackBar();
         private readonly TrackBar _volumeTrackBar = new TrackBar();
         private readonly TextBox _logTextBox = new TextBox();
@@ -248,7 +256,7 @@ namespace DeskCallAssistant
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 104f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 156f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 180f));
-            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 190f));
+            _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 300f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 430f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 330f));
             _rootLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 290f));
@@ -378,8 +386,7 @@ namespace DeskCallAssistant
             }
             else if (control is CheckBox)
             {
-                control.ForeColor = InkColor;
-                control.Font = CreateUiFont(9f, FontStyle.Regular);
+                StyleSelectableOption((CheckBox)control);
             }
             else if (control is TableLayoutPanel || control is FlowLayoutPanel)
             {
@@ -411,6 +418,27 @@ namespace DeskCallAssistant
         private static Color GetButtonBaseColor(Button button)
         {
             return button.Tag is Color ? (Color)button.Tag : button.BackColor;
+        }
+
+        private static void StyleSelectableOption(CheckBox checkBox)
+        {
+            checkBox.Appearance = Appearance.Button;
+            checkBox.FlatStyle = FlatStyle.Flat;
+            checkBox.FlatAppearance.BorderSize = 0;
+            checkBox.AutoSize = true;
+            checkBox.Cursor = Cursors.Hand;
+            checkBox.Font = CreateUiFont(9f, FontStyle.Bold);
+            checkBox.Padding = new Padding(8, 4, 8, 4);
+            checkBox.CheckedChanged += (_, __) => UpdateSelectableOptionColor(checkBox);
+            UpdateSelectableOptionColor(checkBox);
+        }
+
+        private static void UpdateSelectableOptionColor(CheckBox checkBox)
+        {
+            checkBox.BackColor = checkBox.Checked
+                ? Blend(AccentBlue, Color.White, 0.64)
+                : Color.FromArgb(231, 239, 249);
+            checkBox.ForeColor = checkBox.Checked ? AccentBlue : InkColor;
         }
 
         private static void StyleTextBox(TextBox textBox)
@@ -465,7 +493,7 @@ namespace DeskCallAssistant
 
             layout.Controls.Add(BuildModeCard(
                 _callModeBar,
-                "\uE717",
+                "call",
                 "Calls",
                 _callModeStateLabel,
                 _callModeToggleButton,
@@ -473,7 +501,7 @@ namespace DeskCallAssistant
 
             layout.Controls.Add(BuildModeCard(
                 _messageModeBar,
-                "\uE8BD",
+                "message",
                 "Messages",
                 _messageModeStateLabel,
                 _messageModeToggleButton,
@@ -481,7 +509,7 @@ namespace DeskCallAssistant
 
             layout.Controls.Add(BuildModeCard(
                 _voiceModeBar,
-                "\uE720",
+                "voice",
                 "Voice",
                 _voiceModeStateLabel,
                 _voiceModeToggleButton,
@@ -614,7 +642,7 @@ namespace DeskCallAssistant
 
         private static Control BuildModeCard(
             Panel statusBar,
-            string iconText,
+            string iconKind,
             string title,
             Label stateLabel,
             Button actionButton,
@@ -636,14 +664,14 @@ namespace DeskCallAssistant
             statusBar.Dock = DockStyle.Fill;
             statusBar.BackColor = Color.Silver;
 
-            var iconLabel = new Label
+            var iconPanel = new ModeIconPanel
             {
                 Dock = DockStyle.Fill,
-                Font = new Font("Segoe MDL2 Assets", 24f, FontStyle.Regular),
-                Text = iconText,
-                ForeColor = InkColor,
-                TextAlign = ContentAlignment.MiddleCenter
+                IconKind = iconKind,
+                ActiveColor = AccentBlue,
+                IsActive = false
             };
+            statusBar.Tag = iconPanel;
 
             var textPanel = new TableLayoutPanel
             {
@@ -677,7 +705,7 @@ namespace DeskCallAssistant
             actionButton.Click += action;
 
             card.Controls.Add(statusBar, 0, 0);
-            card.Controls.Add(iconLabel, 0, 1);
+            card.Controls.Add(iconPanel, 0, 1);
             card.Controls.Add(textPanel, 0, 2);
             card.Controls.Add(actionButton, 0, 3);
             return card;
@@ -838,9 +866,11 @@ namespace DeskCallAssistant
                 Dock = DockStyle.Fill,
                 Padding = new Padding(10),
                 ColumnCount = 1,
-                RowCount = 2
+                RowCount = 4
             };
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 54f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 82f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58f));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
 
             _preferGpuCheckBox.Text = "Prefer GPU for local bot workloads";
@@ -875,6 +905,9 @@ namespace DeskCallAssistant
             optionsPanel.Controls.Add(_startWithWindowsCheckBox);
             optionsPanel.Controls.Add(_minimizeToTrayCheckBox);
 
+            var localAiPanel = BuildLocalAiModelPanel();
+            var themePanel = BuildThemeEditorPanel();
+
             _computeStatusTextBox.Multiline = true;
             _computeStatusTextBox.ReadOnly = true;
             _computeStatusTextBox.ScrollBars = ScrollBars.Vertical;
@@ -882,9 +915,169 @@ namespace DeskCallAssistant
             _computeStatusTextBox.BackColor = Color.White;
 
             layout.Controls.Add(optionsPanel, 0, 0);
-            layout.Controls.Add(_computeStatusTextBox, 0, 1);
+            layout.Controls.Add(localAiPanel, 0, 1);
+            layout.Controls.Add(themePanel, 0, 2);
+            layout.Controls.Add(_computeStatusTextBox, 0, 3);
             group.Controls.Add(layout);
             return group;
+        }
+
+        private Control BuildLocalAiModelPanel()
+        {
+            var panel = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 2, 0, 8),
+                Padding = new Padding(14, 8, 14, 8),
+                StartColor = Color.FromArgb(248, 252, 255),
+                EndColor = Color.FromArgb(226, 238, 250),
+                GlowColor = Color.FromArgb(44, AccentBlue)
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                ColumnCount = 6,
+                RowCount = 2
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 34f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 66f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 84f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 50f));
+
+            _localAiModelComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _localAiModelComboBox.Dock = DockStyle.Fill;
+            _localAiModelComboBox.Items.Add("Phi-3 Mini ONNX");
+            _localAiModelComboBox.Items.Add("Mistral 7B GGUF");
+            _localAiModelComboBox.Items.Add("Llama 3.1 8B GGUF");
+            _localAiModelComboBox.SelectedIndex = 0;
+            _localAiModelComboBox.SelectedIndexChanged += (_, __) =>
+            {
+                UpdateComputeStatus();
+                ScheduleSettingsSave();
+            };
+
+            _localAiModelPathTextBox.Dock = DockStyle.Fill;
+            _localAiModelPathTextBox.ReadOnly = true;
+            _localAiModelPathTextBox.TextChanged += (_, __) => ScheduleSettingsSave();
+
+            _downloadLocalAiButton.Text = "Download info";
+            _downloadLocalAiButton.Dock = DockStyle.Fill;
+            _downloadLocalAiButton.Click += (_, __) => OpenLocalAiDownloadInfo();
+
+            _browseLocalAiButton.Text = "Browse";
+            _browseLocalAiButton.Dock = DockStyle.Fill;
+            _browseLocalAiButton.Click += (_, __) => BrowseLocalAiModel();
+
+            layout.Controls.Add(new Label
+            {
+                Text = "Local AI model",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 0);
+            layout.Controls.Add(_localAiModelComboBox, 1, 0);
+            layout.Controls.Add(new Label
+            {
+                Text = "Model file",
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 2, 0);
+            layout.Controls.Add(_localAiModelPathTextBox, 3, 0);
+            layout.Controls.Add(_downloadLocalAiButton, 4, 0);
+            layout.Controls.Add(_browseLocalAiButton, 5, 0);
+            layout.Controls.Add(new Label
+            {
+                Text = "Offline rule: after you choose a downloaded local model, the assistant must use it locally and must not send prompts, memory, or credentials to the internet.",
+                Dock = DockStyle.Fill,
+                ForeColor = MutedInkColor,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 0, 1);
+            layout.SetColumnSpan(layout.GetControlFromPosition(0, 1), 6);
+
+            panel.Controls.Add(layout);
+            return panel;
+        }
+
+        private Control BuildThemeEditorPanel()
+        {
+            var panel = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 0, 0, 8),
+                Padding = new Padding(14, 8, 14, 8),
+                StartColor = Color.FromArgb(252, 254, 255),
+                EndColor = Color.FromArgb(232, 240, 250),
+                GlowColor = Color.FromArgb(42, AccentCyan)
+            };
+
+            var layout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Transparent,
+                ColumnCount = 6,
+                RowCount = 1
+            };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 92f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110f));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 28f));
+
+            _themeTypeComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _themeTypeComboBox.Dock = DockStyle.Fill;
+            _themeTypeComboBox.Items.Add("iPhone Glass");
+            _themeTypeComboBox.Items.Add("Neo Tactile");
+            _themeTypeComboBox.Items.Add("Soft Light");
+            _themeTypeComboBox.SelectedIndex = 0;
+            _themeTypeComboBox.SelectedIndexChanged += (_, __) =>
+            {
+                ApplyEditableTheme();
+                ScheduleSettingsSave();
+            };
+
+            _themeAccentComboBox.DropDownStyle = ComboBoxStyle.DropDownList;
+            _themeAccentComboBox.Dock = DockStyle.Fill;
+            _themeAccentComboBox.Items.Add("Blue");
+            _themeAccentComboBox.Items.Add("Cyan");
+            _themeAccentComboBox.Items.Add("Green");
+            _themeAccentComboBox.Items.Add("Orange");
+            _themeAccentComboBox.Items.Add("Violet");
+            _themeAccentComboBox.SelectedIndex = 0;
+            _themeAccentComboBox.SelectedIndexChanged += (_, __) =>
+            {
+                ApplyEditableTheme();
+                ScheduleSettingsSave();
+            };
+
+            _applyThemeButton.Text = "Apply theme";
+            _applyThemeButton.Dock = DockStyle.Fill;
+            _applyThemeButton.Click += (_, __) =>
+            {
+                ApplyEditableTheme();
+                ScheduleSettingsSave();
+            };
+
+            layout.Controls.Add(new Label { Text = "Edit UI", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
+            layout.Controls.Add(_themeTypeComboBox, 1, 0);
+            layout.Controls.Add(new Label { Text = "Accent", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft }, 2, 0);
+            layout.Controls.Add(_themeAccentComboBox, 3, 0);
+            layout.Controls.Add(_applyThemeButton, 4, 0);
+            layout.Controls.Add(new Label
+            {
+                Text = "Theme edits are saved locally.",
+                Dock = DockStyle.Fill,
+                ForeColor = MutedInkColor,
+                TextAlign = ContentAlignment.MiddleLeft
+            }, 5, 0);
+
+            panel.Controls.Add(layout);
+            return panel;
         }
 
         private Control BuildSpeechPanel()
@@ -1367,17 +1560,41 @@ namespace DeskCallAssistant
             _exportLogButton.Anchor = AnchorStyles.Left;
             _exportLogButton.Click += (_, __) => ExportActivityLog();
 
+            var glassLogPanel = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(10),
+                StartColor = Color.FromArgb(246, 251, 255),
+                EndColor = Color.FromArgb(224, 236, 248),
+                GlowColor = Color.FromArgb(48, AccentCyan)
+            };
+            glassLogPanel.Controls.Add(_logTextBox);
+
             layout.Controls.Add(_exportLogButton, 0, 0);
-            layout.Controls.Add(_logTextBox, 0, 1);
+            layout.Controls.Add(glassLogPanel, 0, 1);
             group.Controls.Add(layout);
             return group;
         }
 
         private Control BuildStatusPanel()
         {
+            _statusLabel.BackColor = Color.Transparent;
+            _statusLabel.ForeColor = InkColor;
+            _statusLabel.Font = CreateUiFont(9f, FontStyle.Bold);
             _statusLabel.Dock = DockStyle.Fill;
             _statusLabel.TextAlign = ContentAlignment.MiddleLeft;
-            return _statusLabel;
+
+            var panel = new NeoTactilePanel
+            {
+                Dock = DockStyle.Fill,
+                Margin = new Padding(8, 0, 8, 4),
+                Padding = new Padding(14, 0, 14, 0),
+                StartColor = Color.FromArgb(248, 252, 255),
+                EndColor = Color.FromArgb(229, 239, 250),
+                GlowColor = Color.FromArgb(38, AccentBlue)
+            };
+            panel.Controls.Add(_statusLabel);
+            return panel;
         }
 
         private void LoadVoices()
@@ -1461,6 +1678,10 @@ namespace DeskCallAssistant
             SelectComboItemByText(_fiverrLanguageComboBox, settings.FiverrLanguage);
             _fiverrIncomingMessageTextBox.Text = settings.FiverrIncomingMessageText ?? string.Empty;
             _fiverrGeneratedReplyTextBox.Text = settings.FiverrGeneratedReplyText ?? string.Empty;
+            SelectComboItemByText(_localAiModelComboBox, settings.LocalAiModelName);
+            _localAiModelPathTextBox.Text = settings.LocalAiModelPath ?? string.Empty;
+            SelectComboItemByText(_themeTypeComboBox, settings.ThemeType);
+            SelectComboItemByText(_themeAccentComboBox, settings.ThemeAccent);
 
             if (settings.WindowWidth > MinimumSize.Width)
             {
@@ -1475,6 +1696,7 @@ namespace DeskCallAssistant
             _settingsLoaded = true;
             ApplyStartupRegistrationFromUi();
             ApplyManualTalkMode();
+            ApplyEditableTheme();
             UpdateDetectedLanguageStatus(_incomingMessageTextBox.Text, false);
         }
 
@@ -1519,6 +1741,10 @@ namespace DeskCallAssistant
                 FiverrLanguage = _fiverrLanguageComboBox.SelectedItem as string,
                 FiverrIncomingMessageText = _fiverrIncomingMessageTextBox.Text,
                 FiverrGeneratedReplyText = _fiverrGeneratedReplyTextBox.Text,
+                LocalAiModelName = _localAiModelComboBox.SelectedItem as string,
+                LocalAiModelPath = _localAiModelPathTextBox.Text,
+                ThemeType = _themeTypeComboBox.SelectedItem as string,
+                ThemeAccent = _themeAccentComboBox.SelectedItem as string,
                 WindowWidth = bounds.Width,
                 WindowHeight = bounds.Height
             };
@@ -1558,10 +1784,14 @@ namespace DeskCallAssistant
         {
             var status = _computePolicy.GetStatus(_preferGpuCheckBox.Checked);
             _computeStatusTextBox.Text = string.Format(
-                "{0}{1}{1}{2}{1}- Phrase memory path: {3}{1}- Reply pattern path: {4}{1}- Settings path: {5}{1}- Start with Windows: {6}{1}- Tray behavior: {7}",
+                "{0}{1}{1}{2}{1}- Local AI model: {3}{1}- Local AI path: {4}{1}- Network rule: downloaded models are local-only; prompts and learned memory must not be sent online.{1}- Theme: {5} / {6}{1}- Phrase memory path: {7}{1}- Reply pattern path: {8}{1}- Settings path: {9}{1}- Start with Windows: {10}{1}- Tray behavior: {11}",
                 status.Summary,
                 Environment.NewLine,
                 AppPolicy.BuildPrivacySummary(_learning.StoragePath),
+                _localAiModelComboBox.SelectedItem as string ?? "not selected",
+                string.IsNullOrWhiteSpace(_localAiModelPathTextBox.Text) ? "not selected yet" : _localAiModelPathTextBox.Text,
+                _themeTypeComboBox.SelectedItem as string ?? "iPhone Glass",
+                _themeAccentComboBox.SelectedItem as string ?? "Blue",
                 _learning.StoragePath,
                 _replyLearning.StoragePath,
                 _appSettingsService.SettingsPath,
@@ -1622,6 +1852,14 @@ namespace DeskCallAssistant
             Color activeColor)
         {
             statusBar.BackColor = active ? activeColor : Color.FromArgb(180, 194, 211);
+            var iconPanel = statusBar.Tag as ModeIconPanel;
+            if (iconPanel != null)
+            {
+                iconPanel.ActiveColor = activeColor;
+                iconPanel.IsActive = active;
+                iconPanel.Invalidate();
+            }
+
             stateLabel.Text = stateText;
             stateLabel.ForeColor = active ? activeColor : MutedInkColor;
             actionButton.Text = actionText;
@@ -1949,6 +2187,113 @@ namespace DeskCallAssistant
             {
                 Log("Failed to open the Fiverr inbox page automatically.");
                 SetStatus("Could not open Fiverr inbox automatically.");
+            }
+        }
+
+        private void OpenLocalAiDownloadInfo()
+        {
+            var selectedModel = _localAiModelComboBox.SelectedItem as string ?? "local AI model";
+            var url = "https://huggingface.co/models?other=gguf";
+            try
+            {
+                Process.Start(url);
+                Log("Opened local AI model download information for " + selectedModel + ". Download manually, then choose the local file with Browse.");
+                SetStatus("Local AI model download page opened.");
+            }
+            catch (Exception ex)
+            {
+                Log("Could not open local AI model download information: " + ex.Message);
+                SetStatus("Could not open local AI model download info.");
+            }
+        }
+
+        private void BrowseLocalAiModel()
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Choose a local AI model file";
+                dialog.Filter = "Local model files (*.gguf;*.onnx;*.bin)|*.gguf;*.onnx;*.bin|All files (*.*)|*.*";
+                dialog.CheckFileExists = true;
+
+                if (dialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    SetStatus("Local AI model selection canceled.");
+                    return;
+                }
+
+                _localAiModelPathTextBox.Text = dialog.FileName;
+                UpdateComputeStatus();
+                ScheduleSettingsSave();
+                Log("Selected local AI model file: " + dialog.FileName + ".");
+                SetStatus("Local AI model selected.");
+            }
+        }
+
+        private void ApplyEditableTheme()
+        {
+            var themeName = _themeTypeComboBox.SelectedItem as string ?? "iPhone Glass";
+            var accentName = _themeAccentComboBox.SelectedItem as string ?? "Blue";
+            var accent = GetAccentColor(accentName);
+
+            _rootLayout.Invalidate(true);
+            _scrollHost.Invalidate(true);
+
+            foreach (var button in EnumerateControls<Button>(_rootLayout))
+            {
+                button.BackColor = Blend(accent, Color.White, 0.72);
+                button.Tag = button.BackColor;
+            }
+
+            foreach (var checkBox in EnumerateControls<CheckBox>(_rootLayout))
+            {
+                UpdateSelectableOptionColor(checkBox);
+            }
+
+            Log("Applied UI theme: " + themeName + " with " + accentName + " accent.");
+            SetStatus("Theme applied locally.");
+            UpdateComputeStatus();
+        }
+
+        private static Color GetAccentColor(string accentName)
+        {
+            if (string.Equals(accentName, "Cyan", StringComparison.OrdinalIgnoreCase))
+            {
+                return AccentCyan;
+            }
+
+            if (string.Equals(accentName, "Green", StringComparison.OrdinalIgnoreCase))
+            {
+                return AccentGreen;
+            }
+
+            if (string.Equals(accentName, "Orange", StringComparison.OrdinalIgnoreCase))
+            {
+                return AccentOrange;
+            }
+
+            if (string.Equals(accentName, "Violet", StringComparison.OrdinalIgnoreCase))
+            {
+                return AccentViolet;
+            }
+
+            return AccentBlue;
+        }
+
+        private static IEnumerable<TControl> EnumerateControls<TControl>(Control root)
+            where TControl : Control
+        {
+            foreach (Control child in root.Controls)
+            {
+                var match = child as TControl;
+                if (match != null)
+                {
+                    yield return match;
+                }
+
+                foreach (var descendant in EnumerateControls<TControl>(child))
+                {
+                    yield return descendant;
+                }
             }
         }
 
@@ -2617,6 +2962,107 @@ namespace DeskCallAssistant
                 path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
                 path.CloseFigure();
                 return path;
+            }
+        }
+
+        private sealed class ModeIconPanel : Control
+        {
+            public string IconKind { get; set; }
+
+            public Color ActiveColor { get; set; }
+
+            public bool IsActive { get; set; }
+
+            public ModeIconPanel()
+            {
+                IconKind = "message";
+                ActiveColor = AccentBlue;
+                DoubleBuffered = true;
+                ResizeRedraw = true;
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                base.OnPaint(e);
+                e.Graphics.SmoothingMode = SmoothingMode.HighQuality;
+
+                var accent = IsActive ? ActiveColor : Color.FromArgb(95, 111, 130);
+                var center = new PointF(Width / 2f, Height / 2f);
+
+                if (IsActive)
+                {
+                    using (var glow = new SolidBrush(Color.FromArgb(64, accent)))
+                    {
+                        e.Graphics.FillEllipse(glow, center.X - 22, center.Y - 22, 44, 44);
+                    }
+                }
+
+                using (var pen = new Pen(accent, 3f))
+                using (var brush = new SolidBrush(accent))
+                {
+                    pen.StartCap = LineCap.Round;
+                    pen.EndCap = LineCap.Round;
+                    pen.LineJoin = LineJoin.Round;
+
+                    if (string.Equals(IconKind, "call", StringComparison.OrdinalIgnoreCase))
+                    {
+                        e.Graphics.DrawArc(pen, center.X - 16, center.Y - 17, 32, 32, 122, 118);
+                        e.Graphics.FillEllipse(brush, center.X - 17, center.Y + 9, 7, 7);
+                        e.Graphics.FillEllipse(brush, center.X + 10, center.Y - 15, 7, 7);
+                        DrawCenteredText(e.Graphics, "Call", center.Y + 15, accent);
+                    }
+                    else if (string.Equals(IconKind, "voice", StringComparison.OrdinalIgnoreCase))
+                    {
+                        DrawRoundedRectangle(e.Graphics, pen, center.X - 7, center.Y - 17, 14, 22, 6);
+                        e.Graphics.DrawArc(pen, center.X - 15, center.Y - 5, 30, 22, 0, 180);
+                        e.Graphics.DrawLine(pen, center.X, center.Y + 11, center.X, center.Y + 18);
+                        e.Graphics.DrawLine(pen, center.X - 9, center.Y + 18, center.X + 9, center.Y + 18);
+                        DrawCenteredText(e.Graphics, "Voice", center.Y + 15, accent);
+                    }
+                    else
+                    {
+                        var bubble = new RectangleF(center.X - 18, center.Y - 15, 36, 24);
+                        DrawRoundedRectangle(e.Graphics, pen, bubble.X, bubble.Y, bubble.Width, bubble.Height, 9);
+                        e.Graphics.FillPolygon(brush, new[]
+                        {
+                            new PointF(center.X - 5, center.Y + 8),
+                            new PointF(center.X - 13, center.Y + 18),
+                            new PointF(center.X + 4, center.Y + 10)
+                        });
+                        DrawCenteredText(e.Graphics, "Chat", center.Y + 15, accent);
+                    }
+                }
+            }
+
+            private static void DrawRoundedRectangle(
+                Graphics graphics,
+                Pen pen,
+                float x,
+                float y,
+                float width,
+                float height,
+                float radius)
+            {
+                var diameter = radius * 2f;
+                using (var path = new GraphicsPath())
+                {
+                    path.AddArc(x, y, diameter, diameter, 180, 90);
+                    path.AddArc(x + width - diameter, y, diameter, diameter, 270, 90);
+                    path.AddArc(x + width - diameter, y + height - diameter, diameter, diameter, 0, 90);
+                    path.AddArc(x, y + height - diameter, diameter, diameter, 90, 90);
+                    path.CloseFigure();
+                    graphics.DrawPath(pen, path);
+                }
+            }
+
+            private void DrawCenteredText(Graphics graphics, string text, float y, Color color)
+            {
+                using (var font = CreateUiFont(7.25f, FontStyle.Bold))
+                using (var brush = new SolidBrush(color))
+                using (var format = new StringFormat { Alignment = StringAlignment.Center })
+                {
+                    graphics.DrawString(text, font, brush, new RectangleF(0, y, Width, 14), format);
+                }
             }
         }
     }

@@ -78,6 +78,9 @@ Facebook also has messaging inside `facebook.com`, but `facebook.com/messenger` 
 - Settings persistence in `%LocalAppData%\DeskCallAssistant\AppSettings.xml`
 - `F9` speech hotkey inside the app for speak/stop toggling
 - In-app microphone routing instructions for virtual cable setups
+- Interactive live-control cards now use drawn call/chat/voice icons, colored active states, and button hover/press feedback instead of fragile icon-font glyphs.
+- The compute panel includes a local AI model selector and file browser. Downloading is user-triggered, and selected models are documented as local-only with no prompt or memory upload.
+- The UI editor lets the user choose a glass/tactile theme style and accent color; those preferences are saved locally with the rest of the app settings.
 
 ## Files
 

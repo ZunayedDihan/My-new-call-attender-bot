@@ -62,6 +62,14 @@ namespace DeskCallAssistant
 
         public string FiverrGeneratedReplyText { get; set; }
 
+        public string LocalAiModelName { get; set; }
+
+        public string LocalAiModelPath { get; set; }
+
+        public string ThemeType { get; set; }
+
+        public string ThemeAccent { get; set; }
+
         public int WindowWidth { get; set; }
 
         public int WindowHeight { get; set; }
