@@ -30,14 +30,14 @@ namespace DeskCallAssistant
                 {
                     Id = "whatsapp",
                     DisplayName = "WhatsApp",
-                    ProcessNames = new[] { "WhatsApp", "ApplicationFrameHost", "chrome", "msedge" },
+                    ProcessNames = new[] { "WhatsApp", "WhatsApp.Root", "ApplicationFrameHost", "chrome", "msedge" },
                     WindowTitleHints = new[] { "WhatsApp", "Chats", "Status" }
                 },
                 new MessagingPlatformDefinition
                 {
                     Id = "telegram",
                     DisplayName = "Telegram / Unigram",
-                    ProcessNames = new[] { "Telegram", "Unigram", "ApplicationFrameHost", "chrome", "msedge" },
+                    ProcessNames = new[] { "Telegram", "Telegram.Stub", "Unigram", "ApplicationFrameHost", "chrome", "msedge" },
                     WindowTitleHints = new[] { "Telegram", "Unigram", "Chats" }
                 },
                 new MessagingPlatformDefinition
@@ -102,7 +102,7 @@ namespace DeskCallAssistant
                 PlatformId = platform.Id,
                 Message = !string.IsNullOrWhiteSpace(lastMessage)
                     ? lastMessage
-                    : "No matching chat window was found for the selected platform."
+                    : "No matching chat window was found for the selected platform. " + CollectProcessDiagnostics(platform)
             };
         }
 
@@ -959,8 +959,8 @@ namespace DeskCallAssistant
             {
                 var processId = window.Current.ProcessId;
                 var process = Process.GetProcessById(processId);
-                var processMatch = platform.ProcessNames.Any(name =>
-                    process.ProcessName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                var processName = process.ProcessName ?? string.Empty;
+                var processMatch = platform.ProcessNames.Any(name => ProcessNameMatches(processName, name));
 
                 if (!processMatch)
                 {
@@ -973,12 +973,76 @@ namespace DeskCallAssistant
                     return true;
                 }
 
-                return platform.WindowTitleHints.Any(hint =>
-                    title.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (platform.WindowTitleHints.Any(hint =>
+                    title.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    return true;
+                }
+
+                if (string.IsNullOrWhiteSpace(title) &&
+                    IsNativeDesktopChatProcess(platform, processName))
+                {
+                    return true;
+                }
+
+                return GetElementTokens(window).Any(token =>
+                    platform.WindowTitleHints.Any(hint =>
+                        token.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0));
             }
             catch
             {
                 return false;
+            }
+        }
+
+        private static bool ProcessNameMatches(string actualProcessName, string configuredProcessName)
+        {
+            if (string.IsNullOrWhiteSpace(actualProcessName) ||
+                string.IsNullOrWhiteSpace(configuredProcessName))
+            {
+                return false;
+            }
+
+            return actualProcessName.Equals(configuredProcessName, StringComparison.OrdinalIgnoreCase) ||
+                   actualProcessName.StartsWith(configuredProcessName + ".", StringComparison.OrdinalIgnoreCase) ||
+                   actualProcessName.IndexOf(configuredProcessName, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsNativeDesktopChatProcess(
+            MessagingPlatformDefinition platform,
+            string processName)
+        {
+            if (IsWhatsAppPlatform(platform))
+            {
+                return ContainsAny(processName, "whatsapp");
+            }
+
+            if (IsTelegramPlatform(platform))
+            {
+                return ContainsAny(processName, "telegram", "unigram");
+            }
+
+            return false;
+        }
+
+        private static string CollectProcessDiagnostics(MessagingPlatformDefinition platform)
+        {
+            try
+            {
+                var matches = Process.GetProcesses()
+                    .Where(process => platform.ProcessNames.Any(name => ProcessNameMatches(process.ProcessName, name)))
+                    .Select(process => process.ProcessName + "#" + process.Id)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(8)
+                    .ToArray();
+
+                return matches.Length == 0
+                    ? "No related desktop/browser processes were visible."
+                    : "Related processes: " + string.Join(", ", matches) + ".";
+            }
+            catch
+            {
+                return "Related process diagnostics were unavailable.";
             }
         }
 
