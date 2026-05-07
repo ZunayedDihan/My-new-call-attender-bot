@@ -181,6 +181,40 @@ namespace DeskCallAssistant
                 return drafted;
             }
 
+            if (IsMessengerFamilyPlatform(platform) && ContainsBlockedOverlay(window))
+            {
+                drafted.Found = false;
+                drafted.DetectionMode = "share-overlay-blocked";
+                drafted.DiagnosticInfo = AppendDiagnostic(drafted.DiagnosticInfo, "send blocked because Facebook share/post overlay is open");
+                drafted.Message = "Facebook share/post dialog is open, so reply sending was blocked to avoid targeting the wrong composer.";
+                return drafted;
+            }
+
+            var composer = FindComposer(window, platform);
+            if (composer == null)
+            {
+                drafted.Found = false;
+                drafted.Message = "The chat composer could not be focused before sending.";
+                return drafted;
+            }
+
+            if (IsMessengerFamilyPlatform(platform))
+            {
+                try
+                {
+                    composer.SetFocus();
+                    SendKeys.SendWait("{ENTER}");
+                    drafted.Message = "Sent the drafted reply using Enter in the chat composer.";
+                    return drafted;
+                }
+                catch
+                {
+                    drafted.Found = false;
+                    drafted.Message = "Failed to send the Facebook/Messenger reply from the chat composer.";
+                    return drafted;
+                }
+            }
+
             var sendButton = FindSendButton(window, platform);
             if (sendButton != null && TryInvoke(sendButton))
             {
@@ -287,18 +321,43 @@ namespace DeskCallAssistant
 
             if (directCandidates.Length == 0)
             {
-                return new ConversationSnapshot
+                var visibleDirectCandidates = unreadCandidates.Length == 0
+                    ? FindWhatsAppVisibleDirectChatCandidates(window)
+                    : new AutomationElement[0];
+                if (visibleDirectCandidates.Length > 0)
                 {
-                    Found = false,
-                    PlatformId = platform.Id,
-                    WindowTitle = SafeName(window),
-                    Message = unreadCandidates.Length == 0
+                    return TryBuildWhatsAppSnapshotFromCandidates(
+                        platform,
+                        window,
+                        visibleDirectCandidates,
+                        "Detected a visible WhatsApp direct chat because unread badges were not exposed by accessibility.",
+                        "Visible WhatsApp direct chat candidates were found, but the message preview could not be read.");
+                }
+
+                return BuildWhatsAppNotFoundSnapshot(
+                    platform,
+                    window,
+                    unreadCandidates.Length == 0
                         ? "No unread direct WhatsApp chats were detected."
-                        : "Unread WhatsApp chats were found, but they look like group conversations."
-                };
+                        : "Unread WhatsApp chats were found, but they look like group conversations.");
             }
 
-            foreach (var candidate in directCandidates)
+            return TryBuildWhatsAppSnapshotFromCandidates(
+                platform,
+                window,
+                directCandidates,
+                "Detected an unread direct WhatsApp chat.",
+                "Unread direct WhatsApp chats were found, but the message preview could not be read.");
+        }
+
+        private ConversationSnapshot TryBuildWhatsAppSnapshotFromCandidates(
+            MessagingPlatformDefinition platform,
+            AutomationElement window,
+            AutomationElement[] candidates,
+            string successMessage,
+            string failureMessage)
+        {
+            foreach (var candidate in candidates)
             {
                 if (!TryActivateChat(candidate))
                 {
@@ -322,7 +381,8 @@ namespace DeskCallAssistant
                 }
 
                 snapshot.Found = snapshot.ComposerFound || !string.IsNullOrWhiteSpace(snapshot.LatestIncomingMessage);
-                snapshot.Message = "Detected an unread direct WhatsApp chat.";
+                snapshot.Message = successMessage;
+                snapshot.DiagnosticInfo = AppendDiagnostic(snapshot.DiagnosticInfo, "whatsappRowTitle=" + title);
 
                 if (snapshot.Found)
                 {
@@ -331,12 +391,23 @@ namespace DeskCallAssistant
                 }
             }
 
+            return BuildWhatsAppNotFoundSnapshot(platform, window, failureMessage);
+        }
+
+        private static ConversationSnapshot BuildWhatsAppNotFoundSnapshot(
+            MessagingPlatformDefinition platform,
+            AutomationElement window,
+            string message)
+        {
             return new ConversationSnapshot
             {
                 Found = false,
                 PlatformId = platform.Id,
                 WindowTitle = SafeName(window),
-                Message = "Unread direct WhatsApp chats were found, but the message preview could not be read."
+                ProcessName = SafeProcessName(window),
+                DetectionMode = "whatsapp-chat-list-scan",
+                DiagnosticInfo = "platform=whatsapp; chatListScan=no-match",
+                Message = message
             };
         }
 
@@ -399,6 +470,22 @@ namespace DeskCallAssistant
             AutomationElement window,
             bool autoSelectChat)
         {
+            if (ContainsBlockedOverlay(window))
+            {
+                return new ConversationSnapshot
+                {
+                    Found = false,
+                    PlatformId = platform.Id,
+                    WindowTitle = SafeName(window),
+                    ProcessName = SafeProcessName(window),
+                    DetectionMode = "share-overlay-blocked",
+                    DiagnosticInfo = string.Format(
+                        "platform={0}; candidates=0; composer=blocked; blockedOverlay=yes",
+                        platform != null ? platform.Id : "unknown"),
+                    Message = "Facebook share/post dialog was detected, so reply actions were blocked. Close the dialog or switch back to the chat popup first."
+                };
+            }
+
             var snapshot = BuildBrowserConversationSnapshot(
                 platform,
                 window,
@@ -407,14 +494,6 @@ namespace DeskCallAssistant
             if (snapshot.Found)
             {
                 return snapshot;
-            }
-
-            if (ContainsBlockedOverlay(window))
-            {
-                snapshot.Found = false;
-                snapshot.DetectionMode = "share-overlay-blocked";
-                snapshot.DiagnosticInfo = AppendDiagnostic(snapshot.DiagnosticInfo, "share overlay detected");
-                snapshot.Message = "Facebook share dialog was detected and ignored. Switch back to the chat popup or disable auto-select.";
             }
 
             return snapshot;
@@ -495,6 +574,14 @@ namespace DeskCallAssistant
             }
 
             if (normalized.Equals("send", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (normalized.Equals("sent", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("seen", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("delivered", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Equals("message sent", StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -597,6 +684,45 @@ namespace DeskCallAssistant
             return matches.ToArray();
         }
 
+        private static AutomationElement[] FindWhatsAppVisibleDirectChatCandidates(AutomationElement window)
+        {
+            var rows = window.FindAll(
+                TreeScope.Descendants,
+                new OrCondition(
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ListItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.DataItem),
+                    new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Custom)));
+
+            var matches = new List<AutomationElement>();
+            foreach (AutomationElement row in rows)
+            {
+                var title = GetWhatsAppChatTitle(row);
+                var preview = GetWhatsAppPreviewText(row);
+
+                if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(preview))
+                {
+                    continue;
+                }
+
+                if (title.Equals(preview, StringComparison.OrdinalIgnoreCase) ||
+                    LooksLikeToolingLabel(title) ||
+                    LooksLikeToolingLabel(preview) ||
+                    IsLikelyWhatsAppGroupRow(row))
+                {
+                    continue;
+                }
+
+                if (LooksLikeOutgoingWhatsAppPreview(preview))
+                {
+                    continue;
+                }
+
+                matches.Add(row);
+            }
+
+            return matches.ToArray();
+        }
+
         private static bool HasUnreadMarker(AutomationElement element)
         {
             foreach (var token in GetElementTokens(element))
@@ -643,10 +769,27 @@ namespace DeskCallAssistant
                     continue;
                 }
 
+                if (LooksLikeOutgoingWhatsAppPreview(token))
+                {
+                    continue;
+                }
+
                 return token;
             }
 
             return string.Empty;
+        }
+
+        private static bool LooksLikeOutgoingWhatsAppPreview(string text)
+        {
+            var normalized = NormalizeToken(text);
+            return ContainsAny(
+                normalized,
+                "you:",
+                "you sent",
+                "message sent",
+                "\u2713",
+                "\u2714");
         }
 
         private static bool IsLikelyWhatsAppGroupRow(AutomationElement element)
@@ -942,7 +1085,12 @@ namespace DeskCallAssistant
                 "favorites",
                 "saved messages",
                 "communities and channels",
-                "all chats");
+                "all chats",
+                "chats",
+                "unread",
+                "groups",
+                "favourites",
+                "favorites");
         }
 
         private static bool IsUnreadToken(string text)
@@ -968,7 +1116,18 @@ namespace DeskCallAssistant
                 return false;
             }
 
-            if (ContainsAny(text, "yesterday", "today", "now"))
+            if (ContainsAny(
+                text,
+                "yesterday",
+                "today",
+                "now",
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"))
             {
                 return true;
             }
@@ -1054,13 +1213,19 @@ namespace DeskCallAssistant
 
             foreach (var token in GetElementTokens(window))
             {
-                if (ContainsAny(token, "share now", "share to", "send in messenger", "what's on your mind"))
+                if (LooksLikeFacebookShareOverlayText(token))
                 {
                     return true;
                 }
             }
 
             return false;
+        }
+
+        private static bool LooksLikeFacebookShareOverlayText(string text)
+        {
+            return ContainsAny(text, "share now", "share to", "send in messenger") ||
+                   (ContainsAny(text, "share") && ContainsAny(text, "only me", "feed"));
         }
 
         private static bool IsInsideBlockedOverlay(AutomationElement element)
@@ -1071,7 +1236,7 @@ namespace DeskCallAssistant
                 for (var depth = 0; current != null && depth < 8; depth++)
                 {
                     var name = SafeName(current);
-                    if (ContainsAny(name, "share now", "share to", "send in messenger", "what's on your mind"))
+                    if (LooksLikeFacebookShareOverlayText(name))
                     {
                         return true;
                     }

@@ -49,6 +49,8 @@ This approach is a best-effort desktop automation tool, not an official Messenge
 - Reply languages: Bengali, English, Japanese, and Banglish.
 - Language mode: the assistant can auto-detect the incoming message language locally and use the selected dropdown language only as a fallback.
 - Chat targeting mode: you can let the assistant auto-select a detected chat before replying, or turn that off and keep reply drafting limited to the chat you opened yourself.
+- Facebook safety guard: if a Facebook share/post dialog is open, reply actions are blocked so the app does not click a page share control instead of the chat composer.
+- WhatsApp fallback scan: if WhatsApp unread badges are not exposed through Windows accessibility, the assistant can try visible direct-chat rows while still skipping likely group chats and outgoing previews.
 - Learning mode: the app learns from incoming-message and reply pairs that you save from now on.
 - Reply mode: the app can detect a message, generate a local suggestion, draft it into the chat composer, or auto-send it if you enable that option.
 - Scan mode: the timer now checks the selected platform first and then falls through the other supported chat platforms so one running assistant can catch WhatsApp, Messenger/Facebook, and Telegram/Unigram messages more reliably.
